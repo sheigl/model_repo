@@ -1,0 +1,93 @@
+app_port: 9999
+bind_host: 0.0.0.0
+registry:
+  enabled: true
+  options: {}
+  provider: huggingface
+  repo_root: /mnt/4TB/AI/models
+  token_env: HF_TOKEN
+sources:
+- kind: flat
+  name: GGUF / LLM models
+  root: /mnt/4TB/AI/models
+- kind: comfyui
+  name: ComfyUI store
+  root: /mnt/4TB/AI/comfyui_models/models
+targets:
+  ai.home:
+    categories:
+      audio-codec:
+        remote_root: /mnt/1TB/AI/ComfyUI/ComfyUI/models/audio_encoders
+        subdirs: {}
+      audio-gen:
+        remote_root: /mnt/1TB/AI/chat_models
+        subdirs: {}
+      detection-seg:
+        remote_root: /mnt/1TB/AI/ComfyUI/ComfyUI/models/ultralytics
+        subdirs: {}
+      embedding:
+        remote_root: /mnt/1TB/AI/chat_models/embedding
+        subdirs: {}
+      image-gen:
+        remote_root: /mnt/1TB/AI/ComfyUI/ComfyUI/models/checkpoints
+        subdirs: {}
+      image-lora:
+        remote_root: /mnt/1TB/AI/ComfyUI/ComfyUI/models/loras
+        subdirs: {}
+      llm:
+        remote_root: /mnt/1TB/AI/chat_models
+        subdirs: {}
+      upscaler:
+        remote_root: /mnt/1TB/AI/ComfyUI/ComfyUI/models/upscale_models
+        subdirs: {}
+      vae:
+        remote_root: /mnt/1TB/AI/ComfyUI/ComfyUI/models/vae
+        subdirs: {}
+      video-gen:
+        remote_root: /mnt/1TB/AI/chat_models
+        subdirs: {}
+      vision-projector:
+        remote_root: /mnt/1TB/AI/chat_models
+        subdirs: {}
+    host: ai.home
+    name: ai.home
+    ntfs: true
+    ssh_key: null
+    user: sheigl
+  desktop2.home:
+    categories:
+      audio-codec:
+        remote_root: /home/sheigl/AI/sd_models/audio_encoders
+        subdirs: {}
+      audio-gen:
+        remote_root: /home/sheigl/AI/chat_models
+        subdirs: {}
+      embedding:
+        remote_root: /home/sheigl/AI/chat_models/embedding
+        subdirs: {}
+      image-gen:
+        remote_root: /home/sheigl/AI/stable-diffusion/checkpoints
+        subdirs: {}
+      image-lora:
+        remote_root: /home/sheigl/AI/sd_models/loras
+        subdirs: {}
+      llm:
+        remote_root: /home/sheigl/AI/chat_models
+        subdirs: {}
+      upscaler:
+        remote_root: /home/sheigl/AI/sd_models/upscale_models
+        subdirs: {}
+      vae:
+        remote_root: /home/sheigl/AI/sd_models/vae
+        subdirs: {}
+      video-gen:
+        remote_root: /home/sheigl/AI/chat_models
+        subdirs: {}
+      vision-projector:
+        remote_root: /home/sheigl/AI/chat_models
+        subdirs: {}
+    host: desktop2.home
+    name: desktop2.home
+    ntfs: false
+    ssh_key: null
+    user: sheigl

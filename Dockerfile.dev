@@ -1,0 +1,28 @@
+# Dev/test image: bakes in uv + Playwright + Chromium + system libs so they
+# survive a container restart that wipes the overlay. App code + .venv are on a
+# persistent volume (/home/openchamber/code) and mounted at /app.
+FROM python:3.13-slim
+
+# System runtime libs: Chromium/Playwright deps + app runtime (rsync/ssh for sync).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates git rsync openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# uv binary (match the version you already use: 0.11.7).
+COPY --from=ghcr.io/astral-sh/uv:0.11.7 /uv /uvx /bin/
+
+WORKDIR /app
+
+# Install python deps from the repo's pyproject.toml (incl. playwright).
+COPY pyproject.toml ./
+RUN uv sync --frozen || uv sync
+
+# Install Chromium + its system deps into a path INSIDE the image so it survives.
+# If /app is volume-mounted over the image, browsers must NOT live under /app.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
+RUN uv run playwright install --with-deps chromium
+
+# Sanity-check the browser actually launches.
+RUN uv run python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(); b.close(); p.stop(); print('chromium OK')"
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8321"]

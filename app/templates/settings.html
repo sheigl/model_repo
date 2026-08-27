@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Settings — ModelDeploy{% endblock %}
+{% block content %}
+<div class="mb-5">
+  <h1 class="text-2xl font-semibold tracking-tight text-white">Settings</h1>
+  <p class="mt-1 text-sm text-slate-400">Raw config. Sources define what gets cached & cataloged; targets define where each category lands on each machine.</p>
+</div>
+
+<div class="grid gap-4 lg:grid-cols-[1fr_320px]">
+  <div class="card">
+    <label class="label">config.yaml</label>
+    <textarea id="cfg-yaml" name="cfg_yaml" class="input mt-1 font-mono text-xs leading-relaxed max-h-[50vh] md:max-none overflow-auto" rows="26" spellcheck="false">{{ yaml_text }}</textarea>
+    <div class="mt-3 flex flex-wrap items-center gap-3">
+      <button class="btn-primary w-full md:w-auto" htmx-post="/api/settings/save" htmx-include="#cfg-yaml"
+              htmx-target="#save-result" htmx-indicator="#save-indicator">Save config</button>
+      <div id="save-indicator" class="htmx-indicator text-sm text-accent-soft">saving…</div>
+      <div id="save-result" class="text-sm"></div>
+    </div>
+    <p class="mt-3 text-xs text-slate-500">Writes to {{ config_path }}; takes effect on next page load.</p>
+  </div>
+
+  <div class="space-y-4">
+    <div class="card">
+      <h2 class="mb-3 text-lg font-semibold">Model source</h2>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between gap-2"><dt class="text-slate-400">enabled</dt><dd>{{ cfg.registry.enabled }}</dd></div>
+        <div class="flex justify-between gap-2"><dt class="text-slate-400">provider</dt><dd>{{ cfg.registry.provider }}</dd></div>
+        <div class="flex justify-between gap-2"><dt class="text-slate-400">token_env</dt><dd>{{ cfg.registry.token_env }}</dd></div>
+        <div class="flex justify-between gap-2"><dt class="text-slate-400">repo_root</dt><dd class="max-w-[180px] truncate font-mono text-xs">{{ cfg.registry.repo_root }}</dd></div>
+      </dl>
+    </div>
+    <div class="card">
+      <h2 class="mb-3 text-lg font-semibold">Targets</h2>
+      <div class="space-y-1 text-sm">
+        {% for name, t in cfg.targets.items() %}
+        <div class="flex items-center justify-between rounded-lg bg-ink-800/40 px-3 py-2">
+          <span class="font-medium text-white">{{ name }}</span>
+          <span class="text-xs text-slate-400">{{ t.host }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

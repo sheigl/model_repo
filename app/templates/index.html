@@ -1,0 +1,503 @@
+{% extends "base.html" %}
+{% block title %}Browse — ModelDeploy{% endblock %}
+{% block content %}
+    
+<div class="mb-5 flex flex-col items-start justify-between gap-4 md:flex-row md:items-end">
+  <div>
+    <h1 class="text-2xl font-semibold tracking-tight text-white">Model hub</h1>
+    <p class="mt-1 text-sm text-slate-400">Search the upstream source, or browse what's cached — then deploy to a target.</p>
+  </div>
+  <div class="flex items-center gap-1 rounded-xl border border-ink-600 bg-ink-800/40 p-1">
+    <button class="tab tab-on" id="tab-hub" onclick="switchTab('hub')">Browse hub</button>
+    <button class="tab" id="tab-cache" onclick="switchTab('cache')">Your cache</button>
+  </div>
+</div>
+
+<!-- HUB BROWSER -->
+<section id="view-hub">
+  <div class="mb-4 flex flex-col gap-3 md:flex md:items-center md:flex-wrap md:gap-3">
+    <div class="relative w-full md:flex-[2] min-w-0">
+      <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">⌕</span>
+      <input id="hub-q" class="input pl-9" placeholder="Search the hub… e.g. llama, qwen, whisper, flux"
+             onkeydown="if(event.key==='Enter')hubSearch(0)">
+    </div>
+    <div class="flex flex-wrap items-center gap-3">
+      <label class="flex items-center gap-2 text-sm text-slate-300">
+        <input type="checkbox" id="hub-gguf" class="accent-accent" checked onchange="hubSearch(0)"> GGUF only
+      </label>
+      <button class="btn-primary md:w-auto" onclick="hubSearch(0)">Search</button>
+    </div>
+  </div>
+
+  <div id="hub-chrome" class="mb-3 hidden flex-col items-start justify-between gap-2 sm:flex sm:flex-row sm:items-center">
+    <span id="hub-count" class="text-xs text-slate-400"></span>
+    <label class="flex items-center gap-1.5 text-xs text-slate-300">
+      Sort
+      <select id="hub-sort" class="input !py-1 max-w-[190px] text-xs" onchange="sortHub()">
+        <option value="downloads">Most downloaded</option>
+        <option value="likes">Most likes</option>
+        <option value="last_modified">Recently updated</option>
+      </select>
+    </label>
+  </div>
+
+  <div id="hub-grid" class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"></div>
+  <div id="hub-more" class="mt-5 text-center hidden">
+    <button class="btn-ghost" onclick="hubSearch(true)">Load more</button>
+  </div>
+  <p id="hub-empty" class="hidden p-10 text-center text-slate-500">Search to explore the model hub.</p>
+</section>
+
+<!-- CACHE VIEW -->
+<section id="view-cache" class="hidden">
+  <div class="mb-4 flex flex-col gap-3 md:flex md:items-center md:flex-wrap md:gap-3">
+    <div class="relative w-full md:flex-[2] min-w-0">
+      <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">⌕</span>
+      <input id="cache-q" class="input pl-9" placeholder="Filter your cache…" oninput="debounceCache()">
+    </div>
+    <div class="flex flex-wrap items-center gap-3">
+      <select id="cache-cat" class="input max-w-xs" onchange="loadCache()">
+        <option value="">all categories</option>
+        <option value="3d">3d</option><option value="audio-gen">audio-gen</option><option value="detection-seg">detection-seg</option><option value="embedding">embedding</option><option value="image-gen">image-gen</option><option value="image-lora">image-lora</option><option value="image-text-encoder">image-text-encoder</option><option value="llm">llm</option><option value="openvino">openvino</option><option value="unknown">unknown</option><option value="upscaler">upscaler</option><option value="vae">vae</option><option value="video-gen">video-gen</option><option value="vision-projector">vision-projector</option>
+      </select>
+      <span id="cache-count" class="text-xs text-slate-500"></span>
+    </div>
+  </div>
+  <div id="cache-grid" class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"></div>
+  <p id="cache-empty" class="hidden p-10 text-center text-slate-500">Nothing in your cache yet.</p>
+</section>
+
+<!-- DETAIL DRAWER (HF-style) -->
+<div id="drawer" class="fixed inset-0 z-50 hidden">
+  <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeDrawer()"></div>
+  <div class="absolute right-0 top-0 h-full w-full max-w-lg overflow-y-auto border-l border-ink-700 bg-ink-900 shadow-2xl">
+    <div class="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-ink-700/70 bg-ink-900/95 p-4 backdrop-blur">
+      <div class="flex items-start gap-2.5 min-w-0">
+        <span id="dw-avatar" class="mt-px flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-faint text-sm font-semibold text-accent-soft">#</span>
+        <div class="min-w-0">
+          <p id="dw-sub" class="text-[11px] uppercase tracking-wide text-slate-500"></p>
+          <h2 id="dw-title" class="truncate text-lg font-semibold tracking-tight text-white"></h2>
+        </div>
+      </div>
+      <button class="btn-ghost h-8 w-8 p-0 shrink-0" onclick="closeDrawer()">✕</button>
+    </div>
+    <div id="dw-stats" class="flex items-center gap-4 border-b border-ink-700/60 px-4 py-2.5 text-xs text-slate-400"></div>
+    <div class="flex gap-1 border-b border-ink-700 px-4">
+      <button id="tab-btn-files" class="tab tab-on !px-3 !py-2 text-sm" onclick="switchDrawerTab('files')">Files</button>
+      <button id="tab-btn-meta" class="tab !px-3 !py-2 text-sm text-slate-400" onclick="switchDrawerTab('meta')">Metadata</button>
+    </div>
+    <div class="p-4">
+      <!-- FILES PANEL -->
+      <div id="panel-files">
+        <div class="mb-3 flex items-center justify-between">
+          <span class="label !mb-0">Files / quantizations</span>
+          <span id="dw-filecount" class="text-[11px] text-slate-500"></span>
+        </div>
+        <div class="max-h-72 overflow-auto rounded-xl border border-ink-700 bg-ink-850/50">
+          <div id="dw-files" class="text-sm"></div>
+        </div>
+
+        <div class="mt-4 space-y-3">
+          <div>
+            <label class="label">Target machine</label>
+            <select id="dw-target" class="input" onchange="drawerTargetChanged()">
+  <option value="">— cache only (download) —</option>
+{% for name in deploy_targets %}
+  <option value="{{ name }}">{{ name }}</option>
+{% endfor %}
+
+          </div>
+          <div id="dw-category-wrap">
+            <label class="label">Category</label>
+            <select id="dw-category" class="input">
+              <option value="">auto (inferred)</option>
+              <option value="3d">3d</option><option value="audio-gen">audio-gen</option><option value="detection-seg">detection-seg</option><option value="embedding">embedding</option><option value="image-gen">image-gen</option><option value="image-lora">image-lora</option><option value="image-text-encoder">image-text-encoder</option><option value="llm">llm</option><option value="openvino">openvino</option><option value="unknown">unknown</option><option value="upscaler">upscaler</option><option value="vae">vae</option><option value="video-gen">video-gen</option><option value="vision-projector">vision-projector</option>
+            </select>
+          </div>
+          <div class="flex flex-wrap items-center gap-4 text-sm text-slate-300">
+            <label class="flex items-center gap-2"><input type="checkbox" id="dw-mmproj" class="accent-accent"> include mmproj</label>
+            <label class="flex items-center gap-2"><input type="checkbox" id="dw-dry" class="accent-accent"> dry run</label>
+          </div>
+          <button class="btn-primary w-full" id="dw-deploy" onclick="drawerDeploy()">Deploy</button>
+          <p id="dw-result" class="text-sm"></p>
+        </div>
+      </div>
+
+      <!-- METADATA PANEL -->
+      <div id="panel-meta" class="hidden">
+        <div class="rounded-xl border border-ink-700 bg-ink-850/40 p-3">
+          <p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Model details</p>
+          <ul id="dw-meta-list" class="space-y-2.5 text-xs"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const TARGETS = {
+{% for name, t in deploy_targets.items() %}"{{ name }}": {"categories": {{ t.categories|tojson }}, "host": "{{ t.host }}", "user": "{{ t.user }}"}{% if not loop.last %},{% endif %}
+{% endfor %}};
+const ALL_CATS = ["3d", "audio-gen", "detection-seg", "embedding", "image-gen", "image-lora", "image-text-encoder", "llm", "openvino", "unknown", "upscaler", "vae", "video-gen", "vision-projector"];
+const SOURCES = [{% for s in sources %}{"name": "{{ s.name }}", "root": "{{ s.root }}"}{% if not loop.last %}, {% endif %}{% endfor %}];
+let hubCursor = null, hubMore = false, hubResults = [], currentHubModel = null, cacheTimer = null;
+
+async function hubSearch(loadMore){
+  const q = document.getElementById('hub-q').value.trim();
+  if(!q && !loadMore){ document.getElementById('hub-empty').classList.remove('hidden'); return; }
+  const gguf = document.getElementById('hub-gguf').checked;
+  const grid = document.getElementById('hub-grid');
+  const chrome = document.getElementById('hub-chrome');
+  if(!loadMore){ grid.innerHTML='<p class="text-slate-500">searching…</p>'; hubCursor=null; }
+  try {
+    const params = new URLSearchParams({q, gguf: gguf?'1':''});
+    const r = await fetch('/api/hub/search?'+params);
+    const d = await r.json();
+    hubMore = d.has_more;
+    if(!loadMore){ grid.innerHTML=''; hubResults=[]; }
+    if(d.error){ grid.innerHTML = `<p class="text-sm text-rose">${d.error}</p>`; chrome.classList.add('hidden'); return; }
+    (d.results||[]).forEach(m => hubResults.push(m));
+    sortHub();
+    document.getElementById('hub-more').classList.toggle('hidden', !hubMore);
+  } catch(e){ grid.innerHTML = `<p class="text-sm text-rose">${e}</p>`; }
+}
+function sortHub(){
+  const key = document.getElementById('hub-sort').value;
+  hubResults.sort((a,b)=> (b[key] ?? 0) - (a[key] ?? 0));
+  const grid = document.getElementById('hub-grid');
+  grid.innerHTML = hubResults.length ? hubResults.map(hubCard).join('') : '';
+  document.getElementById('hub-empty').classList.toggle('hidden', hubResults.length>0);
+  document.getElementById('hub-chrome').classList.toggle('hidden', !hubResults.length);
+  const unit = hubResults.length===1 ? 'model' : 'models';
+  document.getElementById('hub-count').textContent = hubResults.length+' '+unit+' found';
+}
+function hfInitial(name){
+  if(!name) return '#';
+  const parts = name.split('/');
+  const src = parts[parts.length-2] || parts[parts.length-1] || '#';
+  return src.charAt(0).toUpperCase();
+}
+function hubCard(m){
+  const dl = m.downloads>=1000 ? (m.downloads/1000).toFixed(1)+'k' : (m.downloads||0);
+  const tags = (m.tags||[]).filter(t=>!['gguf','text-generation'].includes(t)).slice(0,3).map(t=>`<span class="chip !px-2 !text-[10px] !whitespace-nowrap">${t}</span>`).join('');
+  const updated = m.last_modified ? ' · '+relDate(m.last_modified) : '';
+  return `<div class="card !p-4 cursor-pointer transition hover:border-accent/50 hover:bg-ink-800/80" onclick="selectAndOpen(${safeJson(m)})">
+    <div class="mb-2 flex items-start gap-2.5">
+      <span class="mt-px flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-faint text-xs font-semibold text-accent-soft">${hfInitial(m.author||m.id)}</span>
+      <div class="min-w-0 flex-1">
+        <p class="truncate text-sm font-semibold leading-snug text-white" title="${m.id}">${m.id}</p>
+        ${m.author?`<p class="mt-0.5 truncate text-xs text-slate-400">${m.author}</p>`:''}
+      </div>
+      ${m.pipeline?`<span class="badge shrink-0 bg-accent-faint/60 text-accent-soft">${m.pipeline}</span>`:''}
+    </div>
+    ${tags?`<div class="mb-2 flex flex-wrap gap-1">${tags}</div>`:''}
+    <div class="mt-2 flex items-center gap-2 text-[11px] font-medium text-slate-300">
+      <span title="likes"><span class="text-accent-soft">♥</span>${m.likes||0}</span>
+      <span class="text-slate-500 select-none" aria-hidden="true">·</span>
+      <span title="downloads"><span class="text-accent-soft">⬇</span>${dl}</span>
+      <span class="text-slate-500 select-none" aria-hidden="true">·</span>
+      <span>${updated?updated.replace(' · ',''):'files'}</span>
+      <button class="btn-primary ml-auto !px-3 !py-1 text-xs" onclick="event.stopPropagation();selectAndOpen(${safeJson(m)})">Deploy</button>
+    </div>
+  </div>`;
+}
+function safeJson(o){ return JSON.stringify(o).replace(/"/g,'&quot;'); }
+function selectAndOpen(m){ currentHubModel = m; openHubRepo(m.id); }
+function relDate(iso){
+  if(!iso) return '';
+  const d = new Date(iso), now = new Date();
+  const days = Math.floor((now - d)/(864e5));
+  if(days < 1) return 'today';
+  if(days === 1) return 'yesterday';
+  if(days < 60) return days+'d ago';
+  if(days < 365) return Math.floor(days/30)+'mo ago';
+  return Math.floor(days/365)+'y ago';
+}
+async function openHubRepo(repo){
+  const m = currentHubModel || { id: repo, author: (repo.split('/')[0]) };
+  currentRepo = repo;
+  document.getElementById('dw-sub').textContent = 'upstream hub';
+  document.getElementById('dw-title').textContent = repo;
+  document.getElementById('dw-avatar').textContent = hfInitial(m.author||m.id);
+  openDrawer();
+  renderStatsHub(m);
+  buildMetaHub(m);
+  switchDrawerTab('files');
+  document.getElementById('dw-filecount').textContent='loading…';
+  document.getElementById('dw-files').innerHTML='<tr><td colspan="3" class="px-3 py-4 text-center text-xs text-slate-500">loading…</td></tr>';
+  try {
+    const r = await fetch('/api/hub/files?repo='+encodeURIComponent(repo));
+    const d = await r.json();
+    const files = d.files||[];
+    const sizes = d.sizes||{};
+    document.getElementById('dw-filecount').textContent = files.length+' files';
+    document.getElementById('dw-files').innerHTML = renderHubTree(files, sizes) || '<div class="px-3 py-4 text-center text-xs text-slate-500">no GGUF files</div>';
+  } catch(e){ document.getElementById('dw-files').innerHTML=`<tr><td colspan="3" class="px-3 py-4 text-center text-xs text-rose">${e}</td></tr>`; }
+}
+function renderStatsHub(m){
+  const el = document.getElementById('dw-stats');
+  if(m.author && (m.downloads!=null || m.likes!=null)){
+    el.innerHTML = `<span title="likes">♥ ${m.likes||0}</span><span title="downloads">⬇ ${(m.downloads>=1000?(m.downloads/1000).toFixed(1)+'k':(m.downloads||0))}</span><span class="ml-auto text-slate-500">${m.pipeline?m.pipeline:''}</span>`;
+  } else {
+    el.innerHTML = `<span class="text-slate-500">author/repo · deploy or cache</span>`;
+  }
+}
+function buildMetaHub(m){
+  const row=(l,v)=>`<li class="flex items-start justify-between gap-2"><span class="text-slate-400">${l}</span><span class="text-right font-mono text-slate-200 break-all">${v}</span></li>`;
+  const tagsHtml = (m.tags||[]).filter(t=>!['gguf'].includes(t)).slice(0,8)
+    .map(t=>`<span class="chip !px-2 !text-[10px] !whitespace-nowrap">${t}</span>`).join('');
+  const rows=[];
+  if(m.author) rows.push(row('Author', m.author));
+  if(m.downloads!=null) rows.push(row('Downloads', (m.downloads>=1000?(m.downloads/1000).toFixed(1)+'k':m.downloads)));
+  if(m.likes!=null) rows.push(row('Likes', m.likes));
+  if(m.pipeline) rows.push(row('Pipeline tag', m.pipeline));
+  if(tagsHtml){
+    rows.push(`<li><p class="mb-1 text-[11px] uppercase tracking-wide text-slate-500">Tags</p><div class="flex flex-wrap gap-1">${tagsHtml}</div></li>`);
+  }
+  if(m.last_modified) rows.push(row('Last updated', relDate(m.last_modified)));
+  document.getElementById('dw-meta-list').innerHTML = rows.join('') || '<li class="text-slate-500">no metadata</li>';
+}
+function switchDrawerTab(tab){
+  const files=document.getElementById('panel-files'), meta=document.getElementById('panel-meta');
+  const bf=document.getElementById('tab-btn-files'), bm=document.getElementById('tab-btn-meta');
+  if(tab==='files'){ files.classList.remove('hidden'); meta.classList.add('hidden'); bf.classList.add('tab-on'); bf.classList.remove('text-slate-400'); bm.classList.remove('tab-on'); bm.classList.add('text-slate-400'); }
+  else { meta.classList.remove('hidden'); files.classList.add('hidden'); bm.classList.add('tab-on'); bm.classList.remove('text-slate-400'); bf.classList.remove('tab-on'); bf.classList.add('text-slate-400'); }
+}
+function cssEq(s){ return String(s).replace(/["\\]/g,'\\$&'); }
+function subTreeCount(n){ let c=n.files.length; for(const k in n.kids) c+=subTreeCount(n.kids[k]); return c; }
+function makeTree(files, sizes){
+  const root={ name:'', files:[], kids:{}, _size:0, _count:0 };
+  for(const f of files){
+    if(f.split('/').pop().toLowerCase().startsWith('mmproj')) continue;
+    let node=root;
+    const parts=f.split('/');
+    const leaf=parts.pop();
+    for(const p of parts){
+      if(!node.kids[p]) node.kids[p]={ name:p, files:[], kids:{}, _size:0, _count:0 };
+      node=node.kids[p];
+      node._size=(node._size||0)+(sizes[f]||0);
+      node._count=(node._count||0)+1;
+    }
+    node.files.push(f);
+  }
+  root._count=subTreeCount(root);
+  return root;
+}
+function mmprojLeaf(f, size){
+  const q=f.replace(/\.gguf$/,'');
+  return `<div class="flex items-center gap-3 px-3 py-1.5 hover:bg-ink-800/50">
+    <input type="checkbox" class="dw-mmproj accent-accent" value="${q}" data-file="${cssEq(f)}" title="${cssEq(f)}">
+    <span class="min-w-0 flex-1 truncate font-mono text-xs text-slate-200" title="${cssEq(f)}">${f}</span>
+    <span class="shrink-0 text-right text-[11px] ${size==null?'text-slate-600':'text-slate-400'}">${formatSize(size)}</span>
+  </div>`;
+}
+function treeLeaf(f, size){
+  const q=f.replace(/\.gguf$/,'');
+  const base=f.split('/').pop();
+  return `<div class="flex items-center gap-3 px-3 py-1.5 hover:bg-ink-800/50">
+    <input type="checkbox" class="dw-quant accent-accent" value="${q}" data-file="${cssEq(f)}" title="${cssEq(f)}">
+    <span class="min-w-0 flex-1 truncate font-mono text-xs text-slate-200" title="${cssEq(f)}">${base}</span>
+    <span class="shrink-0 text-right text-[11px] ${size==null?'text-slate-600':'text-slate-400'}">${formatSize(size)}</span>
+  </div>`;
+}
+function folderRow(name, node, fp){
+  return `<div class="flex items-center gap-3 px-3 py-1.5 cursor-pointer hover:bg-ink-800/60 rounded" onclick="toggleExpand('${cssEq(fp)}')">
+    <span class="tree-caret w-6 shrink-0 text-center text-lg text-slate-300 cursor-pointer select-none" data-caret="${cssEq(fp)}">▸</span>
+    <input type="checkbox" class="dw-folder accent-accent" data-folder-select="${cssEq(fp)}" onclick="event.stopPropagation()" title="select all files in ${name}/">
+    <span class="min-w-0 flex-1 truncate font-medium text-sm text-slate-200">${name.replace(/\.gguf$/,'')}/</span>
+    <span class="shrink-0 text-[11px] text-slate-500" data-count="${cssEq(fp)}">${node._count} files · ${formatSize(node._size)}</span>
+  </div>`;
+}
+function renderFolder(node, depth, fp, sizes){
+  const indent=20+depth*16;
+  let out='';
+  if(node.files && node.files.length)
+    out += node.files.map(f=>treeLeaf(f, sizes[f])).join('');
+  for(const name of Object.keys(node.kids).sort()){
+    const kid=node.kids[name];
+    const kfp=fp? fp+'/'+name : name;
+    out += folderRow(name, kid, kfp);
+    out += `<div class="tree-body hidden" data-for="${cssEq(kfp)}">${renderFolder(kid, depth+1, kfp, sizes)}</div>`;
+  }
+  return `<div style="padding-left:${indent}px">${out}</div>`;
+}
+function toggleExpand(fp){
+  const body=document.querySelector(`.tree-body[data-for="${cssEq(fp)}"]`);
+  if(!body) return;
+  body.classList.toggle('hidden');
+  const caret=document.querySelector(`[data-caret="${cssEq(fp)}"]`);
+  if(caret) caret.textContent=body.classList.contains('hidden')?'▸':'▾';
+}
+function toggleFolderAll(e){
+  e.stopPropagation();
+  const box=e.target;
+  const fp=box.dataset.folderSelect;
+  const body=document.querySelector(`.tree-body[data-for="${cssEq(fp)}"]`);
+  if(!body) return;
+  body.querySelectorAll('.dw-quant').forEach(l=>l.checked=box.checked);
+}
+function refreshFolderBoxes(){
+  document.querySelectorAll('[data-folder-select]').forEach(box=>{
+    const fp=box.dataset.folderSelect;
+    const body=document.querySelector(`.tree-body[data-for="${cssEq(fp)}"]`);
+    if(!body) return;
+    const leaves=body.querySelectorAll('.dw-quant');
+    let checked=0; leaves.forEach(l=>{ if(l.checked) checked++; });
+    box.indeterminate=checked>0 && checked<leaves.length;
+  });
+}
+function renderHubTree(files, sizes){
+  const root=makeTree(files, sizes);
+  const mmproj=files.filter(f=>f.split('/').pop().toLowerCase().startsWith('mmproj'));
+  if(!root._count && !root.files.length && !mmproj.length) return '';
+  let out='';
+  if(root.files && root.files.length)
+    out += root.files.map(f=>treeLeaf(f, sizes[f])).join('');
+  if(mmproj.length){
+    out += `<div class="px-3 py-1.5 text-[11px] uppercase tracking-wide text-slate-500">Auxiliary (mmproj)</div>`;
+    out += mmproj.map(f=>`<div style="padding-left:24px">${mmprojLeaf(f, sizes[f])}</div>`).join('');
+  }
+  for(const name of Object.keys(root.kids).sort()){
+    const kid=root.kids[name];
+    out += folderRow(name, kid, name);
+    out += `<div class="tree-body hidden" data-for="${cssEq(name)}">${renderFolder(kid,1,name,sizes)}</div>`;
+  }
+  return out;
+}
+document.addEventListener('change', function(e){
+  const t=e.target;
+  if(t.classList.contains('dw-folder')) toggleFolderAll(e);
+  else if(t.classList.contains('dw-quant') || t.classList.contains('dw-mmproj')) refreshFolderBoxes();
+});
+function formatSize(bytes){
+  if(!bytes && bytes!==0) return '<span class="text-slate-600">—</span>';
+  const u=['B','KB','MB','GB','TB'];
+  const i=Math.floor(Math.log(bytes)/Math.log(1024));
+  return (bytes/Math.pow(1024,i)).toFixed(i?1:0)+' '+u[i];
+}
+function drawerTargetChanged(){
+  const t = TARGETS[document.getElementById('dw-target').value];
+  if(!t) return;
+  const cats = t.categories||{};
+  const sel = document.getElementById('dw-category');
+  const first = Object.keys(cats)[0];
+  if(first){ document.getElementById('dw-category').value = first; }
+}
+async function drawerDeploy(){
+  const target = document.getElementById('dw-target').value;
+  const category = document.getElementById('dw-category').value;
+  document.getElementById('dw-result').innerHTML='<p class="text-slate-300">enqueuing…</p>';
+
+  // Cache mode: the model is already local — sync the path to the target.
+  if(currentRepo.kind === 'cache'){
+    const src = SOURCES.find(s=>s.name===currentRepo.source) || SOURCES[0];
+    if(!target){ document.getElementById('dw-result').innerHTML='<p class="text-rose">Pick a target.</p>'; return; }
+    const fd = new FormData();
+    fd.append('source_root', src ? src.root : '');
+    fd.append('local_path', currentRepo.path);
+    fd.append('target', target);
+    fd.append('category', category);
+    fd.append('remote_root', (TARGETS[target] && TARGETS[target].categories[category]) || '');
+    const r = await fetch('/api/sync',{method:'POST',body:fd});
+    const d = await r.json();
+    if(d.ok){ document.getElementById('dw-result').innerHTML=`<p class="text-mint">✓ queued — <a class="underline" href="/jobs#${d.job_id}">view job</a></p>`; }
+    else { document.getElementById('dw-result').innerHTML=`<p class="text-rose">${d.error||'failed'}</p>`; }
+    return;
+  }
+
+  // Hub mode: pick quant(s), deploy = download-if-missing then rsync.
+  let quants = [...document.querySelectorAll('.dw-quant:checked')].map(c=>c.value);
+  const mm = document.querySelector('.dw-mmproj:checked') ? 'on':'';
+  if(!quants.length){ document.getElementById('dw-result').innerHTML='<p class="text-rose">Select at least one quant.</p>'; return; }
+  const fd = new FormData();
+  fd.append('model', currentRepo);
+  quants.forEach(q=>fd.append('quants',q));
+  fd.append('no_mmproj', mm?'':'on');
+  fd.append('dry_run', document.getElementById('dw-dry').checked?'on':'');
+  if(target){ fd.append('target', target); fd.append('category', category); }
+  const r = await fetch('/api/deploy',{method:'POST',body:fd});
+  const d = await r.json();
+  if(d.ok){ document.getElementById('dw-result').innerHTML=`<p class="text-mint">✓ queued — <a class="underline" href="/jobs#${d.job_id}">view job</a></p>`; }
+  else { document.getElementById('dw-result').innerHTML=`<p class="text-rose">${d.error||'failed'}</p>`; }
+}
+
+// CACHE VIEW
+async function loadCache(){
+  const q = document.getElementById('cache-q').value.trim();
+  const cat = document.getElementById('cache-cat').value;
+  const grid = document.getElementById('cache-grid');
+  const params = new URLSearchParams();
+  if(cat) params.set('category',cat);
+  if(q) params.set('query',q);
+  const r = await fetch('/api/cache?'+params);
+  const d = await r.json();
+  document.getElementById('cache-count').textContent = d.count+' model(s)';
+  grid.innerHTML = d.models.map(cacheCard).join('');
+  document.getElementById('cache-empty').classList.toggle('hidden', d.count>0);
+}
+function cacheCard(m){
+  const data = JSON.stringify({kind:'cache', path:m.path, source:m.source, category:m.category, name:m.name})
+                   .replace(/"/g,'&quot;');
+  const cat = m.category || 'model';
+  return `<div class="card !p-4 cursor-pointer transition hover:border-accent/50 hover:bg-ink-800/80" onclick='openCacheRepo(${data})'>
+    <div class="mb-2 flex items-start gap-2.5">
+      <span class="mt-px flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-faint text-xs font-semibold text-accent-soft">${cat.charAt(0).toUpperCase()}</span>
+      <div class="min-w-0 flex-1">
+        <p class="truncate text-sm font-semibold leading-snug text-white" title="${m.name}">${m.name}</p>
+        ${m.source?`<p class="mt-0.5 truncate text-xs text-slate-400">${m.source}</p>`:''}
+      </div>
+      <span class="badge shrink-0 bg-accent-faint/60 text-accent-soft">${cat}</span>
+    </div>
+    <div class="mt-2 flex items-center gap-2 text-[11px] font-medium text-slate-300">
+      <span>${m.quant||'n/a'}</span>
+      <span class="text-slate-500 select-none" aria-hidden="true">·</span>
+      <span>${m.size_gb} GB</span>
+      <span class="text-slate-500 select-none" aria-hidden="true">·</span>
+      <span>${m.file_count}f</span>
+      <button class="btn-primary ml-auto !px-3 !py-1 text-xs" onclick="event.stopPropagation();openCacheRepo(${data})">Sync</button>
+    </div>
+  </div>`;
+}
+function openCacheRepo(m){
+  currentHubModel = m; currentRepo = m;
+  document.getElementById('dw-sub').textContent = 'your cache';
+  document.getElementById('dw-title').textContent = m.name;
+  document.getElementById('dw-avatar').textContent = (m.category||'model').charAt(0).toUpperCase();
+  openDrawer();
+  renderStatsCache(m);
+  buildMetaCache(m);
+  switchDrawerTab('files');
+  document.getElementById('dw-filecount').textContent='cached';
+  document.getElementById('dw-files').innerHTML=`<p class="text-xs text-slate-500 font-mono break-all">${m.path}</p>`;
+  if(document.getElementById('dw-category')) document.getElementById('dw-category').value = m.category || '';
+  document.getElementById('dw-result').textContent='';
+}
+function renderStatsCache(m){
+  document.getElementById('dw-stats').innerHTML = `<span>${m.category||'model'}</span><span>${m.size_gb} GB</span><span class="ml-auto text-slate-500">${m.source||''}</span>`;
+}
+function buildMetaCache(m){
+  const row=(l,v)=>`<li class="flex items-start justify-between gap-2"><span class="text-slate-400">${l}</span><span class="text-right font-mono text-slate-200 break-all">${v}</span></li>`;
+  const rows=[];
+  if(m.category) rows.push(row('Category', m.category));
+  if(m.quant) rows.push(row('Quantization', m.quant));
+  if(m.source) rows.push(row('Source', m.source));
+  rows.push(row('Files', ''+(m.file_count||0)));
+  if(m.size_gb!=null) rows.push(row('Size', m.size_gb+' GB'));
+  rows.push(row('Path', m.path));
+  document.getElementById('dw-meta-list').innerHTML = rows.join('') || '<li class="text-slate-500">no metadata</li>';
+}
+function switchTab(which){
+  const hub = which==='hub';
+  document.getElementById('view-hub').classList.toggle('hidden', !hub);
+  document.getElementById('view-cache').classList.toggle('hidden', hub);
+  document.getElementById('tab-hub').classList.toggle('tab-on', hub);
+  document.getElementById('tab-cache').classList.toggle('tab-on', !hub);
+  if(!hub && !document.getElementById('cache-grid').innerHTML) loadCache();
+}
+function openDrawer(){ const el=document.getElementById('drawer'); el.classList.remove('hidden'); el.firstElementChild; }
+function closeDrawer(){ document.getElementById('drawer').classList.add('hidden'); }
+function debounceCache(){ clearTimeout(cacheTimer); cacheTimer=setTimeout(loadCache,250); }
+</script>
+
+  
+{% endblock %}

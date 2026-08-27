@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Targets — ModelDeploy{% endblock %}
+{% block content %}
+<div class="mb-5">
+  <h1 class="text-2xl font-semibold tracking-tight text-white">Target machines</h1>
+  <p class="mt-1 text-sm text-slate-400">Deploy pushes models from the cache to each target over rsync-over-SSH. The map below is where each category lands.</p>
+</div>
+
+<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+  {% for name, t in cfg.targets.items() %}
+  <div class="card">
+    <div class="mb-4 flex items-start justify-between gap-3">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2">
+          <h2 class="text-lg font-semibold text-white">{{ name }}</h2>
+          {% if t.ntfs %}<span class="badge bg-amber-500/15 text-amber-300">NTFS</span>{% endif %}
+        </div>
+        <p class="text-xs text-slate-400">{{ t.user }}@{{ t.host }}</p>
+      </div>
+      <button class="btn-ghost test-btn" data-host="{{ t.host }}" data-user="{{ t.user }}"
+              data-key="{{ t.ssh_key or '' }}" data-status="#conn-{{ name }}">Test</button>
+    </div>
+
+    <p id="conn-{{ name }}" class="mb-4 text-sm">
+      {% if conn_cache.get(name) %}
+        {% if conn_cache[name].ok %}<span class="inline-flex items-center gap-1.5 text-mint">● {{ conn_cache[name].detail }}</span>
+        {% else %}<span class="inline-flex items-center gap-1.5 text-rose">● {{ conn_cache[name].detail }}</span>{% endif %}
+      {% else %}<span class="text-slate-500">not checked yet</span>{% endif %}
+    </p>
+
+    <div class="space-y-1 text-sm">
+      <p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Category → remote path</p>
+      {% for cat, pm in t.categories.items() %}
+      <div class="flex items-center justify-between gap-2 rounded-lg border border-ink-700/60 bg-ink-800/30 px-3 py-1.5">
+        <span class="badge bg-accent-faint/50 text-accent-soft">{{ cat }}</span>
+        <span class="min-w-0 truncate font-mono text-xs text-slate-300" title="{{ pm.remote_root }}">{{ pm.remote_root }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

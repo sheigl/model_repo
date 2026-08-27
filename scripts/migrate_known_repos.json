@@ -1,0 +1,606 @@
+{
+  "_note": "Search-based attribution. 'known_repos' + attribution are HF-verified (basename present in repo listing). Unverified -> manual_review (likely gated repos needing HF_TOKEN).",
+  "generated_by": "migrate_search_pass1 (token=no)",
+  "known_repos": [],
+  "attribution": {
+    "mmproj-BF16-Qwen3.6-27b.gguf": null,
+    "mmproj-BF16-Qwen3.6-35B-A3B-UD-Q4_K_M.gguf": null,
+    "mmproj-BF16-gemma-4-12b.gguf": null,
+    "mmproj-BF16-gemma-4-31B-it-qat-UD-Q4_K_XL.gguf": null,
+    "mmproj-F16-Qwen3.6-27b.gguf": null,
+    "mmproj-F16-Qwen3.6-35B-A3B-MTP.gguf": null,
+    "mmproj-F16-Qwen3.8-27B-Cold-Fusion-GAIN-V1.1-NM-DAU-NEO-MAX-MTP.gguf": null,
+    "mmproj-F16-Qwen3.8-27B.gguf": null
+  },
+  "manual_review": [
+    {
+      "file": "Bonsai-27B-Q1_0.gguf",
+      "candidates": [
+        "Hikari07jp/Ternary-Bonsai-27B-Abliterated-LowDeg-GGUF",
+        "Kingman007/Ternary-Bonsai-27B-gguf",
+        "livadies/Bonsai-27B-Android-Local",
+        "prism-ml/Bonsai-27B-gguf",
+        "prism-ml/Ternary-Bonsai-27B-gguf",
+        "vinpix/Ternary-Bonsai-27B-Stock-MTP-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "bonsai-27b-q1_0"
+    },
+    {
+      "file": "Kwaipilot_KAT-Coder-V2.5-Dev-MTP-UD-Q5_K_XL.gguf",
+      "candidates": [],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "kwaipilot_kat-coder-v2.5-dev-mtp-ud-q5_k_xl"
+    },
+    {
+      "file": "Kwaipilot_KAT-Coder-V2.5-Dev-Q6_K_L.gguf",
+      "candidates": [
+        "bartowski/Kwaipilot_KAT-Coder-V2.5-Dev-GGUF",
+        "thread13/Kwaipilot_KAT-Coder-V2.5-Dev-GGUF-MTP"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "kwaipilot_kat-coder-v2.5-dev-q6_k_l"
+    },
+    {
+      "file": "Lance_3B_Video-Q8_0.gguf",
+      "candidates": [],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "lance_3b_video-q8_0"
+    },
+    {
+      "file": "Ling-3.0-tiny-Q8_0.gguf",
+      "reason": "personal/custom author",
+      "key": "ling-3.0-tiny-q8_0"
+    },
+    {
+      "file": "Ministral-3-3B-Instruct-2512-UD-Q4_K_XL.gguf",
+      "candidates": [],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "ministral-3-3b-instruct-2512-ud-q4_k_xl"
+    },
+    {
+      "file": "Muse-Glimmer-30B-UD-Q4_K_XL.gguf",
+      "candidates": [
+        "lancejames221b/Muse-Glimmer-30B-UD-Q4_K_XL-262k-patch"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "muse-glimmer-30b-ud-q4_k_xl"
+    },
+    {
+      "file": "North-Mini-Code-1.0-Q6_K_L.gguf",
+      "candidates": [
+        "AdmiralGloom/North-Mini-Code-1.0-GGUF-Q6",
+        "Arki05/North-Mini-Code-1.0-GGUF",
+        "heimann/North-Mini-Code-1.0-GGUF",
+        "michaelw9999/North-Mini-Code-1.0-GGUF",
+        "michaelw9999/North-Mini-Code-1.0-NVFP4",
+        "unsloth/North-Mini-Code-1.0-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "north-mini-code-1.0-q6_k_l"
+    },
+    {
+      "file": "Ornith-1.0-9B-MTP-Q8_0.gguf",
+      "reason": "personal/custom author",
+      "key": "ornith-1.0-9b-mtp-q8_0"
+    },
+    {
+      "file": "Ornith-1.5-35B-A3B-Q6_K_L.gguf",
+      "reason": "personal/custom author",
+      "key": "ornith-1.5-35b-a3b-q6_k_l"
+    },
+    {
+      "file": "Ornith-1.5-9B-Q4_K_M.gguf",
+      "reason": "personal/custom author",
+      "key": "ornith-1.5-9b-q4_k_m"
+    },
+    {
+      "file": "Ornith-1.5-9B-Q6_K.gguf",
+      "reason": "personal/custom author",
+      "key": "ornith-1.5-9b-q6_k"
+    },
+    {
+      "file": "Phi-3.5-mini-instruct-Q4_K_M.gguf",
+      "candidates": [
+        "LoneStriker/Phi-3.5-mini-instruct-GGUF",
+        "Nabokov/Phi-3.5-mini-instruct-Q5_K_S-GGUF",
+        "YorkieOH10/Phi-3.5-mini-instruct-Q8_0-GGUF",
+        "bartowski/Phi-3.5-mini-instruct-GGUF",
+        "ckirby/Phi-3.5-mini-instruct-Q4_K_M-GGUF",
+        "cowoho/Phi-3.5-mini-instruct-Q4_K_M-GGUF",
+        "garrofe/Phi-3.5-mini-instruct-Q4_K_M-GGUF",
+        "goodasdgood/Phi-3.5-mini-instruct-Q4_K_M-GGUF",
+        "legraphista/Phi-3.5-mini-instruct-IMat-GGUF",
+        "lm-kit/phi-3.5-mini-3.8b-instruct-gguf",
+        "mrmage/Phi-3.5-mini-instruct-Q4_K_M-GGUF",
+        "pprp/Phi-3.5-mini-instruct-Q4_K_M-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "phi-3.5-mini-instruct-q4_k_m"
+    },
+    {
+      "file": "Qwen-AgentWorld-35B-A3B-UD-Q8_K_XL.gguf",
+      "candidates": [
+        "coolthor/Huihui-Qwen-AgentWorld-35B-A3B-abliterated-UD-Q3_K_M-GGUF",
+        "meshllm/Qwen-AgentWorld-35B-A3B-UD-Q4_K_XL-layers",
+        "vadikulous-ai/Qwen-AgentWorld-35B-A3B-UD-Q4_K_XL-MTP-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen-agentworld-35b-a3b-ud-q8_k_xl"
+    },
+    {
+      "file": "Qwen3-0.6B-Base.Q4_K_M.gguf",
+      "candidates": [
+        "Netsnake/Qwen3-0.6B-Base_full_sft_Java_data_12K-Q4_K_M-GGUF",
+        "PeterAM4/Qwen3-Embedding-0.6B-GGUF",
+        "Qwen/Qwen3-Embedding-0.6B-GGUF",
+        "Voodisss/Qwen3-Reranker-0.6B-GGUF-llama_cpp",
+        "WilliamSong/qwen3-embedding-0.6b",
+        "YeonwooSung/Qwen3-0.6B-Base-Q4_K_M-GGUF",
+        "bartowski/Qwen_Qwen3-0.6B-GGUF",
+        "devmasa/Qwen3-0.6B-Base-Q4_K_M-GGUF",
+        "elichen-skymizer/Qwen3-0.6B-Base-Q4_K_M-GGUF",
+        "itlwas/Qwen3-0.6B-Base-Q4_K_M-GGUF",
+        "unsloth/Qwen3-0.6B-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3-0.6b-base.q4_k_m"
+    },
+    {
+      "file": "Qwen3-14B-UD-Q4_K_XL.gguf",
+      "candidates": [
+        "meshllm/Qwen3-14B-UD-Q4_K_XL-layers"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3-14b-ud-q4_k_xl"
+    },
+    {
+      "file": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+      "candidates": [
+        "HauhauCS/Qwen3-4B-2507-Instruct-Uncensored-HauhauCS-Aggressive",
+        "Unrestricted/Qwen3-4B-2507-Instruct-Uncensored-HauhauCS-Aggressive",
+        "Yolozh/Huihui-Qwen3-4B-Instruct-2507-abliterated-Q4_K_M-GGUF",
+        "elichen-skymizer/Qwen3-4B-Instruct-2507-Q4_K_M-GGUF",
+        "enacimie/Qwen3-4B-Instruct-2507-Q4_K_M-GGUF",
+        "fengpeisheng1/Josiefied-Qwen3-4B-Instruct-2507-gabliterated-v1-Q4_K_M-GGUF",
+        "lmstudio-community/Qwen3-4B-Instruct-2507-GGUF",
+        "logos-flux/Qwen3-4B-Instruct-2507-heretic-GGUF",
+        "mahdisml/Huihui-Qwen3-4B-Instruct-2507-abliterated-Q4_K_M-GGUF",
+        "snuggguf/Qwen3-4B-Instruct-2507-GGUF",
+        "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+        "yuko29hu/Qwen3-4B-Instruct-2507-Q4_K_M-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3-4b-instruct-2507-q4_k_m"
+    },
+    {
+      "file": "Qwen3.5-4B-UD-Q4_K_XL.gguf",
+      "candidates": [
+        "Manojb/Qwen3.5-4B-UD-Q3_K_XL.gguf",
+        "Manojb/Qwen3.5-4B-UD-Q4_K_XL.gguf",
+        "Manojb/Qwen3.5-4B-UD-Q5_K_XL.gguf",
+        "Manojb/Qwen3.5-4B-UD-Q6_K_XL.gguf",
+        "Manojb/Qwen3.5-4B-UD-Q8_K_XL.gguf",
+        "XpressAI/Qwen3.5-4B-RYS-UD-Q4_K_XL-GGUF",
+        "dahara1/Qwen3.5-4B-UD-japanese-imatrix"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.5-4b-ud-q4_k_xl"
+    },
+    {
+      "file": "Qwen3.5-9B-Claude-4.6-OS-AV-H-UNCENSORED-THINK-D_AU-Q8_0.gguf",
+      "candidates": [
+        "mmp2055/Qwen3.5-9B-Claude-4.6-OS-AV-H-UNCENSORED-THINK-D_AU-Q4_K_S-imat-bughunter",
+        "mmp2055/qwen3.5-9b-claude-4.6-os-av-h-uncensored-think-d_au-imat-bughunter-v6"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.5-9b-claude-4.6-os-av-h-uncensored-think-d_au-q8_0"
+    },
+    {
+      "file": "Qwen3.5-9B-UD-Q6_K_XL.gguf",
+      "candidates": [
+        "Manojb/Qwen3.5-9B-UD-IQ3_XXS.gguf",
+        "Manojb/Qwen3.5-9B-UD-Q3_K_XL.gguf",
+        "Manojb/Qwen3.5-9B-UD-Q4_K_XL.gguf",
+        "Manojb/Qwen3.5-9B-UD-Q5_K_XL.gguf",
+        "Manojb/Qwen3.5-9B-UD-Q6_K_XL.gguf",
+        "Manojb/Qwen3.5-9B-UD-Q8_K_XL.gguf"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.5-9b-ud-q6_k_xl"
+    },
+    {
+      "file": "Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-Q6_K.gguf",
+      "candidates": [
+        "Daxin/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-Q4_K_S"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-q6_k"
+    },
+    {
+      "file": "Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-Q6_K.gguf",
+      "candidates": [
+        "Daxin/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-Q4_K_S"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-q6_k"
+    },
+    {
+      "file": "Qwen3.6-27B-NEO-CODE-2T-OT-Q6_K.gguf",
+      "candidates": [],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.6-27b-neo-code-2t-ot-q6_k"
+    },
+    {
+      "file": "Qwen3.6-27B-NEO-CODE-HERE-2T-OT-Q6_K.gguf",
+      "candidates": [],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.6-27b-neo-code-here-2t-ot-q6_k"
+    },
+    {
+      "file": "Qwen3.6-27B-UD-Q4_K_XL.gguf",
+      "candidates": [
+        "BumbaBot/Qwen3.6-27B-UD-Q4_K_XL-split",
+        "DAXZEIT/Qwen3.6-27B-Claude-Opus-Reasoning-Distilled-UD-Q4_K_XL-gguf",
+        "DAXZEIT/Qwen3.6-27B-Claude-Opus-Reasoning-Distilled-UD-Q5_K_XL-gguf",
+        "DAXZEIT/Qwen3.6-27B-Claude-Opus-Reasoning-UD-Q4_K_RA-XL-gguf",
+        "YuYu1015/Huihui-Qwen3.6-27B-abliterated-UD-Q4_K_XL-MTP-GGUF",
+        "groxaxo/Qwen3.6-27B-abliterated-v2-UD-GGUF",
+        "havenoammo/Qwen3.6-27B-MTP-UD-GGUF",
+        "juan1995-dev/Qwen3.6-27B-UD-Q5_K_L-mmproj-BF16-GGUF",
+        "meshllm/Qwen3.6-27B-UD-Q4_K_XL-layers",
+        "yogthos/atlas-asa-qwen3.6-27b-mtp-ud-q4_k_xl"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.6-27b-ud-q4_k_xl"
+    },
+    {
+      "file": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+      "candidates": [
+        "HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive",
+        "LuffyTheFox/Qwen3.6-35B-A3B-Uncensored-Genesis-Hermes-V10-GGUF",
+        "SC117/Qwen3.6-35B-A3B-uncensored-heretic-Native-MTP-Preserved-APEX-GGUF",
+        "peculiar-ragdoll/Nail-Qwen3.6-35B-A3B-GGUF-MTP",
+        "unsloth/Qwen3.6-35B-A3B-GGUF",
+        "unsloth/Qwen3.6-35B-A3B-MTP-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.6-35b-a3b"
+    },
+    {
+      "file": "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf",
+      "candidates": [
+        "DanyDA/unsloth_Qwen3.6-35B-A3B-UD-Q4_K_M-GGUF-SPLIT",
+        "LucianoM39/Qwen3.6-35B-A3B-UD-Q4_K_XL-Mesh-LLM",
+        "XpressAI/Qwen3.6-35B-A3B-ExpertClone-Logic-UD-Q4_K_XL-GGUF",
+        "juan1995-dev/Qwen3.6-35B-A3B-UD-Q4_K_M_GGUF",
+        "juan1995-dev/Qwen3.6-35B-A3B-UD-Q5_K_M_GGUF",
+        "meshllm/Qwen3.6-35B-A3B-UD-Q4_K_XL-layers",
+        "mfielding92/UD-2.0-Qwen3.6-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled-GGUF",
+        "ponytang3/Qwen3.6-35B-A3B-heretic-ud-iq4_nl-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.6-35b-a3b-ud-q4_k_xl"
+    },
+    {
+      "file": "Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf",
+      "candidates": [
+        "DanyDA/unsloth_Qwen3.6-35B-A3B-UD-Q4_K_M-GGUF-SPLIT",
+        "XpressAI/Qwen3.6-35B-A3B-ExpertClone-Logic-UD-Q4_K_XL-GGUF",
+        "juan1995-dev/Qwen3.6-35B-A3B-UD-Q4_K_M_GGUF",
+        "juan1995-dev/Qwen3.6-35B-A3B-UD-Q5_K_M_GGUF",
+        "mfielding92/UD-2.0-Qwen3.6-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled-GGUF",
+        "ponytang3/Qwen3.6-35B-A3B-heretic-ud-iq4_nl-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.6-35b-a3b-ud-q6_k_xl"
+    },
+    {
+      "file": "Qwen3.6-40B-Deck-Opus-NEO-CODE-HERE-2T-OT-HIGH-Q8_0.gguf",
+      "candidates": [
+        "MarkZuckerCrack/Qwen3.6-40B-Deck-Opus-NEO-CODE-HERE-2T-OT-HIGH-Q8_0",
+        "sahu-ai-research/Qwen3.6-40B-Deck-Opus-NEO-CODE-HERE-2T-OT-HIGH-MTP-SAHU-Q8_0"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.6-40b-deck-opus-neo-code-here-2t-ot-high-q8_0"
+    },
+    {
+      "file": "Qwen3.8-27B-Cold-Fusion-GAIN-V1.1-NM-DAU-NEO-MAX-NEO-LOW-MTP-Q6_K.gguf",
+      "candidates": [],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.8-27b-cold-fusion-gain-v1.1-nm-dau-neo-max-neo-low-mtp-q6_k"
+    },
+    {
+      "file": "Qwen3.8-27B-Cold-Fusion-GAIN-V1.1-NM-DAU-NEO-MAX-NEO-MTP-Q4_K_M.gguf",
+      "candidates": [
+        "DavidAU/Qwen3.8-27B-Cold-Fusion-GAIN-V1.1-NM-DAU-NEO-MAX-MTP-GGUF",
+        "developerjeremylive/Qwen3.8-27B-Cold-Fusion-GAIN-V1.1-NM-DAU-NEO-MAX-MTP-GGUF-etheroi"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.8-27b-cold-fusion-gain-v1.1-nm-dau-neo-max-neo-mtp-q4_k_m"
+    },
+    {
+      "file": "Qwen3.8-27B-Cold-Fusion-GAIN-V1.1-NM-DAU-NEO-MAX-NEO-MTP-Q8_0.gguf",
+      "candidates": [
+        "DavidAU/Qwen3.8-27B-Cold-Fusion-GAIN-V1.1-NM-DAU-NEO-MAX-MTP-GGUF",
+        "developerjeremylive/Qwen3.8-27B-Cold-Fusion-GAIN-V1.1-NM-DAU-NEO-MAX-MTP-GGUF-etheroi"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.8-27b-cold-fusion-gain-v1.1-nm-dau-neo-max-neo-mtp-q8_0"
+    },
+    {
+      "file": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+      "candidates": [
+        "Luis23333/Qwen3.8-27B-SSMFIX-UD-Q3_K_XL-GGUF",
+        "QQZ2026/Qwen3.8-27B-ZeroRefusal-UD-IQ4_XS-MTP-GGUF",
+        "chimingw/qwen3.8-27b-ud-q5-k-xl-llamafile",
+        "grimoni/Qwen3.8-27B-SSMFIX-UD-Q4_K_XL-GGUF",
+        "lambsea/Qwen3.8-27B-AEON-Ultimate-Uncensored-UD-GGUF",
+        "oolfBER/Qwen3.8-27B-UD-Q4_K_XL-single-GGUF",
+        "robbintt/qwen3.8-27b-ud-iq2xxs-q8head"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.8-27b-ud-q4_k_xl"
+    },
+    {
+      "file": "Qwen3.8-27B-UD-Q6_K_XL.gguf",
+      "candidates": [
+        "Luis23333/Qwen3.8-27B-SSMFIX-UD-Q3_K_XL-GGUF",
+        "QQZ2026/Qwen3.8-27B-ZeroRefusal-UD-IQ4_XS-MTP-GGUF",
+        "chimingw/qwen3.8-27b-ud-q5-k-xl-llamafile",
+        "lambsea/Qwen3.8-27B-AEON-Ultimate-Uncensored-UD-GGUF",
+        "oolfBER/Qwen3.8-27B-UD-Q4_K_XL-single-GGUF",
+        "robbintt/qwen3.8-27b-ud-iq2xxs-q8head"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.8-27b-ud-q6_k_xl"
+    },
+    {
+      "file": "Qwen3.8-27B-UD-Q8_K_XL.gguf",
+      "candidates": [
+        "Luis23333/Qwen3.8-27B-SSMFIX-UD-Q3_K_XL-GGUF",
+        "QQZ2026/Qwen3.8-27B-ZeroRefusal-UD-IQ4_XS-MTP-GGUF",
+        "chimingw/qwen3.8-27b-ud-q5-k-xl-llamafile",
+        "lambsea/Qwen3.8-27B-AEON-Ultimate-Uncensored-UD-GGUF",
+        "oolfBER/Qwen3.8-27B-UD-Q4_K_XL-single-GGUF",
+        "robbintt/qwen3.8-27b-ud-iq2xxs-q8head"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.8-27b-ud-q8_k_xl"
+    },
+    {
+      "file": "Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf",
+      "candidates": [
+        "AIconjured/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF-Q8-NVFP4",
+        "HauhauCS/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF",
+        "IMUGLYHUH/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF",
+        "Vincentt/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF-Q4_K_P",
+        "lstari/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF",
+        "nurdich/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF",
+        "taurusduan/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.8-27b-uncensored-hauhaucs-aggressive-q4_k_p"
+    },
+    {
+      "file": "Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-Q6_K_P.gguf",
+      "candidates": [
+        "AIconjured/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF-Q8-NVFP4",
+        "HauhauCS/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF",
+        "IMUGLYHUH/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF",
+        "lstari/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF",
+        "nurdich/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF",
+        "taurusduan/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.8-27b-uncensored-hauhaucs-aggressive-q6_k_p"
+    },
+    {
+      "file": "Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-Q8_K_P.gguf",
+      "candidates": [
+        "AIconjured/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF-Q8-NVFP4",
+        "HauhauCS/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF",
+        "IMUGLYHUH/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF",
+        "lstari/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF",
+        "nurdich/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF",
+        "taurusduan/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen3.8-27b-uncensored-hauhaucs-aggressive-q8_k_p"
+    },
+    {
+      "file": "Qwythos-9B-v2-Q8_0.gguf",
+      "candidates": [
+        "DarkKitsune/Qwythos-9B-v2-Q5_K_L-imat-GGUF",
+        "IKN03/Qwythos-9B-v2-GGUF",
+        "empero-ai/Qwythos-9B-v2-GGUF",
+        "mradermacher/Qwythos-9B-v2-i1-GGUF",
+        "pressatojump/qwythos-9b-axiom-phase-b-v2",
+        "shivamnaik/Qwythos-9B-v2-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwythos-9b-v2-q8_0"
+    },
+    {
+      "file": "ThinkingCap-Qwen3.6-27B-Q6_K.gguf",
+      "candidates": [
+        "Abiray/ThinkingCap-Qwen3.6-27B-MTP-Q4_K_M-GGUF",
+        "Abiray/ThinkingCap-Qwen3.6-27B-Q4_K_M-GGUF",
+        "bottlecapai/ThinkingCap-Qwen3.6-27B-GGUF",
+        "gopi87/ThinkingCap-Qwen3.6-27B-Q6_K-GGUF",
+        "plunderstruck/ThinkingCap-Qwen3.6-27B-MTP-ROCmFP4-GGUF",
+        "protoLabsAI/ThinkingCap-Qwen3.6-27B-MTP-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "thinkingcap-qwen3.6-27b-q6_k"
+    },
+    {
+      "file": "ThinkingCap-Qwen3.6-27B-Q8_0.gguf",
+      "candidates": [
+        "Abiray/ThinkingCap-Qwen3.6-27B-MTP-Q4_K_M-GGUF",
+        "Abiray/ThinkingCap-Qwen3.6-27B-Q4_K_M-GGUF",
+        "bottlecapai/ThinkingCap-Qwen3.6-27B-GGUF",
+        "gopi87/ThinkingCap-Qwen3.6-27B-Q6_K-GGUF",
+        "plunderstruck/ThinkingCap-Qwen3.6-27B-MTP-ROCmFP4-GGUF",
+        "protoLabsAI/ThinkingCap-Qwen3.6-27B-MTP-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "thinkingcap-qwen3.6-27b-q8_0"
+    },
+    {
+      "file": "VibeThinker-3B-heretic.i1-Q6_K.gguf",
+      "reason": "personal/custom author",
+      "key": "vibethinker-3b-heretic.i1-q6_k"
+    },
+    {
+      "file": "diffusiongemma-26B-A4B-it-Q8_0.gguf",
+      "candidates": [
+        "AlexAtomic/diffusiongemma-26B-A4B-it-GGUF",
+        "Brunobkr/OFFELLIA_IQ4_XS_diffusiongemma-26B-A4B-it.gguf",
+        "Brunobkr/OFFELLIA_MXFP4_MOE_diffusiongemma-26B-A4B-it.gguf",
+        "corsairnui/diffusiongemma-26b-a4b-it-strix-halo-fp16",
+        "meshllm/diffusiongemma-26B-A4B-it-Q4_K_M-layers",
+        "unsloth/diffusiongemma-26B-A4B-it-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "diffusiongemma-26b-a4b-it-q8_0"
+    },
+    {
+      "file": "ibm-granite_granite-4.1-3b-Q4_K_M.gguf",
+      "candidates": [
+        "DevQuasar/ibm-granite.granite-4.1-3b-GGUF",
+        "bartowski/ibm-granite_granite-4.1-3b-GGUF",
+        "ibm-granite/granite-4.1-3b-GGUF",
+        "ibm-granite/granite-4.1-3b-fp8",
+        "mradermacher/IBM_granite-4.1-3b_Abliterated-GGUF",
+        "mradermacher/IBM_granite-4.1-3b_Abliterated-i1-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "ibm-granite_granite-4.1-3b-q4_k_m"
+    },
+    {
+      "file": "mmproj-BF16.gguf",
+      "candidates": [
+        "Thireus/mmproj-Qwen3-VL-235B-A22B-Instruct-THIREUS-BF16-SPECIAL_SPLIT",
+        "Thireus/mmproj-Qwen3-VL-235B-A22B-Thinking-THIREUS-BF16-SPECIAL_SPLIT",
+        "Thireus/mmproj-Qwen3.5-2B-THIREUS-BF16-SPECIAL_SPLIT",
+        "Thireus/mmproj-Qwen3.6-35B-A3B-THIREUS-BF16-SPECIAL_SPLIT",
+        "juan1995-dev/Qwen3.5-35B-A3B-mmproj-BF16-GGUF",
+        "juan1995-dev/Qwen3.6-27B-UD-Q5_K_L-mmproj-BF16-GGUF"
+      ],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "mmproj-bf16"
+    },
+    {
+      "file": "mmproj-MUSE-GLIMMER-30B-BF16-Muse-Glimmer-30B.gguf",
+      "candidates": [],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "mmproj-muse-glimmer-30b-bf16-muse-glimmer-30b"
+    },
+    {
+      "file": "mmproj-NEX-AGI_NEX-N2-MINI-BF16-nex-agi_Nex-N2-mini.gguf",
+      "candidates": [],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "mmproj-nex-agi_nex-n2-mini-bf16-nex-agi_nex-n2-mini"
+    },
+    {
+      "file": "mmproj-ORNITH-1.5-35B-A3B-BF16-Ornith-1.5-35B-A3B.gguf",
+      "reason": "personal/custom author",
+      "key": "mmproj-ornith-1.5-35b-a3b-bf16-ornith-1.5-35b-a3b"
+    },
+    {
+      "file": "mmproj-ORNITH-1.5-9B-BF16-Ornith-1.5-9B.gguf",
+      "reason": "personal/custom author",
+      "key": "mmproj-ornith-1.5-9b-bf16-ornith-1.5-9b"
+    },
+    {
+      "file": "mmproj-QWEN3.8-27B-UNCENSORED-HAUHAUCS-AGGRESSIVE-BF16-Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP.gguf",
+      "candidates": [],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "mmproj-qwen3.8-27b-uncensored-hauhaucs-aggressive-bf16-qwen3.8-27b-uncensored-hauhaucs-aggressive-mtp"
+    },
+    {
+      "file": "mmproj-THINKINGCAP-QWEN3.6-27B-F16-ThinkingCap-Qwen3.6-27B.gguf",
+      "candidates": [],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "mmproj-thinkingcap-qwen3.6-27b-f16-thinkingcap-qwen3.6-27b"
+    },
+    {
+      "file": "mmproj-qwen2.5-omni-7b-f16.gguf",
+      "candidates": [],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "mmproj-qwen2.5-omni-7b-f16"
+    },
+    {
+      "file": "mxbai-embed-large-v1.Q4_K_M.gguf",
+      "candidates": [],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "mxbai-embed-large-v1.q4_k_m"
+    },
+    {
+      "file": "nex-agi_Nex-N2-mini-Q6_K_L.gguf",
+      "candidates": [],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "nex-agi_nex-n2-mini-q6_k_l"
+    },
+    {
+      "file": "ornith-1.0-35b-Q6_K.gguf",
+      "reason": "personal/custom author",
+      "key": "ornith-1.0-35b-q6_k"
+    },
+    {
+      "file": "qwen2.5-omni-7b-q4_k_m.gguf",
+      "candidates": [],
+      "reason": "no verified repo listed this basename (gated? needs HF_TOKEN)",
+      "key": "qwen2.5-omni-7b-q4_k_m"
+    },
+    {
+      "file": "mmproj-BF16-Qwen3.6-27b.gguf",
+      "reason": "mmproj not matched",
+      "candidates": [],
+      "key": "qwen3.6-27b.gguf"
+    },
+    {
+      "file": "mmproj-BF16-Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+      "reason": "mmproj not matched",
+      "candidates": [],
+      "key": "qwen3.6-35b-a3b-ud-q4_k_m.gguf"
+    },
+    {
+      "file": "mmproj-BF16-gemma-4-12b.gguf",
+      "reason": "mmproj not matched",
+      "candidates": [],
+      "key": "gemma-4-12b.gguf"
+    },
+    {
+      "file": "mmproj-BF16-gemma-4-31B-it-qat-UD-Q4_K_XL.gguf",
+      "reason": "mmproj not matched",
+      "candidates": [],
+      "key": "gemma-4-31b-it-qat-ud-q4_k_xl.gguf"
+    },
+    {
+      "file": "mmproj-F16-Qwen3.6-27b.gguf",
+      "reason": "mmproj not matched",
+      "candidates": [],
+      "key": "qwen3.6-27b.gguf"
+    },
+    {
+      "file": "mmproj-F16-Qwen3.6-35B-A3B-MTP.gguf",
+      "reason": "mmproj not matched",
+      "candidates": [],
+      "key": "qwen3.6-35b-a3b-mtp.gguf"
+    },
+    {
+      "file": "mmproj-F16-Qwen3.8-27B-Cold-Fusion-GAIN-V1.1-NM-DAU-NEO-MAX-MTP.gguf",
+      "reason": "mmproj not matched",
+      "candidates": [],
+      "key": "qwen3.8-27b-cold-fusion-gain-v1.1-nm-dau-neo-max-mtp.gguf"
+    },
+    {
+      "file": "mmproj-F16-Qwen3.8-27B.gguf",
+      "reason": "mmproj not matched",
+      "candidates": [],
+      "key": "qwen3.8-27b.gguf"
+    }
+  ]
+}

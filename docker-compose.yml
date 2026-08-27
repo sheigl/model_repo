@@ -1,0 +1,12 @@
+services:
+  model-repo:
+    build: .
+    container_name: model-repo
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - TZ=America/New_York
+    volumes:
+      - ./config.yaml:/app/config.yaml
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"

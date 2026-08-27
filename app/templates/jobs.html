@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Jobs — Model Deployment{% endblock %}
+{% block content %}
+<div class="mb-5">
+  <h1 class="text-2xl font-semibold tracking-tight text-white">Job queue</h1>
+  <p class="mt-1 text-sm text-slate-400">Deploys, downloads and syncs run on a single background worker. Live output streams here.</p>
+</div>
+
+<div class="card space-y-3" id="job-list">
+  <p class="text-slate-400">No jobs yet.</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const STATUS_CLASS = {
+  queued: 'bg-slate-600 text-slate-100',
+  running: 'bg-accent-faint/40 text-accent-soft',
+  done: 'bg-mint/15 text-mint',
+  failed: 'bg-rose/15 text-rose',
+};
+function statusBadge(status){ return `<span class="badge ${STATUS_CLASS[status]||'bg-slate-600'}">${status}</span>`; }
+
+
+async function refresh(){
+  const r = await fetch('/api/jobs');
+  const data = await r.json();
+  const list = document.getElementById('job-list');
+  if(!data.jobs.length){ list.innerHTML = '<p class="text-slate-400">No jobs yet.</p>'; return; }
+  list.innerHTML = data.jobs.map(jobRow).join('');
+  document.querySelectorAll('[data-stream]').forEach(el => startStream(el.dataset.stream, el));
+}
+
+function jobRow(j){
+  const shortId = j.id.slice(0,14);
+  return `
+  <div class="rounded-xl border border-ink-700/70 bg-ink-800/40 p-4" data-job="${j.id}">
+    <div class="flex items-center justify-between gap-3">
+      <div class="min-w-0">
+        <p class="font-medium text-white truncate">${j.description}</p>
+        <p class="text-xs text-slate-500">${shortId} · ${j.kind} · ${new Date(j.created_at*1000).toLocaleString()}</p>
+      </div>
+      <div class="flex items-center gap-3 shrink-0">
+        ${statusBadge(j.status)}
+        <button class="btn-ghost !py-1 text-xs" onclick="toggleLog('${j.id}', this)">Log</button>
+      </div>
+    </div>
+    <div class="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-ink-700">
+      <div class="h-full bg-accent transition-all" style="width:${j.progress}%"></div>
+    </div>
+    <pre class="log hidden mt-3" data-stream="${j.id}"></pre>
+  </div>`;
+}
+function toggleLog(jobId, btn){
+  const pre = document.querySelector(`[data-stream="${jobId}"]`);
+  if(pre.classList.contains('hidden')){
+    pre.classList.remove('hidden');
+    btn.textContent = 'Hide log';
+    startStream(jobId, pre);
+  } else {
+    pre.classList.add('hidden');
+    btn.textContent = 'Show log';
+  }
+}
+
+function startStream(jobId, el){
+  if(el.dataset.started) return;
+  el.dataset.started = '1';
+  const es = new EventSource(`/api/stream/${jobId}`);
+  es.onmessage = (ev) => {
+    let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+    if(msg.line){ el.textContent += msg.line + '\n'; el.scrollTop = el.scrollHeight; }
+    if(msg.final){ el.textContent += '\n=== DONE ===\n' + JSON.stringify(msg.final.result, null, 2); es.close(); }
+  };
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+{% endblock %}

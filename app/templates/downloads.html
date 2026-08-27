@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Deploy — Model Deployment{% endblock %}
+{% block content %}
+<h1 class="mb-4 text-xl font-semibold">Deploy from model source</h1>
+<p class="mb-6 text-sm text-slate-400">The model hub is the source of truth; this server is a cache. Pick a model, quant(s) and mmproj, choose a target, and the app downloads anything not already cached, then syncs it to the target.</p>
+
+<div class="card mb-6">
+  <div class="flex flex-wrap gap-3 items-end">
+    <div class="flex-1 min-w-[240px]">
+      <label class="text-xs uppercase text-slate-400">Model or repo ID</label>
+      <input type="text" id="hf-repo" class="input" placeholder="e.g. unsloth/Mistral-7B-v0.3-GGUF">
+    </div>
+    <button class="btn-ghost" onclick="listFiles()">List files</button>
+    <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="hf-no-mmproj"> no mmproj</label>
+    <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="hf-dry-run"> dry run</label>
+  </div>
+
+  <div id="hf-list-out" class="mt-4"></div>
+
+  <form id="hf-form" class="mt-4">
+    <input type="hidden" name="model" id="hf-model">
+    <div id="hf-quants-selected" class="mb-3"></div>
+    <input type="hidden" name="quants" id="hf-quants-hidden">
+
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div>
+        <label class="mb-1 block text-xs uppercase text-slate-400">Target machine</label>
+        <select name="target" id="hf-target" class="input" onchange="onDeployTargetChange()">
+          <option value="">— cache only (just download) —</option>
+          {% for name, t in targets.items() %}
+          <option value="{{ name }}">{{ name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="mb-1 block text-xs uppercase text-slate-400">Category</label>
+        <select name="category" id="hf-category" class="input">
+          <option value="">auto (inferred)</option>
+          {% for c in all_categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+        </select>
+        <p id="hf-remote-preview" class="mt-1 text-xs text-slate-500"></p>
+      </div>
+    </div>
+
+    <div id="hf-indicator" class="hidden text-sm text-indigo-300 mt-3">enqueuing…</div>
+    <button type="submit" class="btn-primary mt-3" id="hf-submit">Deploy</button>
+    <div id="hf-result" class="mt-2"></div>
+  </form>
+</div>
+
+{% if deploy_targets %}
+<script>
+var DEPLOY_TARGETS = {{ deploy_targets | tojson }};
+</script>
+{% endif %}
+
+<div class="card">
+  <h2 class="mb-3 text-lg font-semibold">Recent deploys / downloads</h2>
+  {% if recent %}
+  <table>
+    <thead><tr><th>Job</th><th>Status</th><th>Result</th><th>When</th></tr></thead>
+    <tbody>
+      {% for j in recent %}
+      <tr>
+        <td class="font-medium">{{ j.description }}</td>
+        <td><span class="badge {% if j.status.value == 'done' %}bg-emerald-900/60 text-emerald-200{% elif j.status.value == 'failed' %}bg-red-900/60 text-red-200{% else %}bg-slate-700 text-slate-200{% endif %}">{{ j.status.value }}</span></td>
+        <td class="text-slate-300 text-xs">{{ j.result.get('synced', j.result.get('downloaded', '')) }}synced / {{ j.result.get('failed', j.result.get('skipped', '')) }}err</td>
+        <td class="text-slate-500 text-xs">{{ j.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="text-slate-400">No deploy jobs yet.</p>{% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function listFiles(){
+  const repo = document.getElementById('hf-repo').value.trim();
+  if(!repo) return;
+  const out = document.getElementById('hf-list-out');
+  out.innerHTML = '<p class="text-sm text-slate-400">listing…</p>';
+  fetch(`/api/hf/list?repo=${encodeURIComponent(repo)}`)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('hf-model').value = data.repo;
+      if(!data.files.length){ out.innerHTML='<p class="text-sm text-slate-400">No GGUF files.</p>'; return; }
+      let html = '<div class="mb-3"><p class="text-xs uppercase text-slate-500 mb-2">'+data.repo+' — available files</p><div class="grid gap-1 max-h-64 overflow-auto">';
+      data.files.forEach(f => {
+        const q = f.replace(/^mmproj-/,'').replace(/\.gguf$/,'');
+        const cls = f.indexOf('mmproj') === 0 ? 'hf-mmproj' : 'hf-q';
+        html += `<label class="flex items-center gap-2 text-sm py-1"><input type="checkbox" class="${cls}" value="${q}" onchange="updateQuants()"> ${f}</label>`;
+      });
+      html += '</div></div>';
+      out.innerHTML = html;
+      updateQuants();
+    })
+    .catch(e => out.innerHTML = `<p class="text-sm text-red-400">${e}</p>`);
+}
+function updateQuants(){
+  const checked = [...document.querySelectorAll('.hf-q:checked')].map(c=>c.value);
+  const mm = [...document.querySelectorAll('.hf-mmproj:checked')].length ? 'mmproj' : '';
+  document.getElementById('hf-quants-hidden').value = JSON.stringify(checked);
+  let s = checked.join(', ');
+  if(mm) s += (s ? ', ' : '') + mm;
+  document.getElementById('hf-quants-selected').textContent = s ? `selected: ${s}` : '';
+}
+function onDeployTargetChange(){
+  const name = document.getElementById('hf-target').value;
+  const preview = document.getElementById('hf-remote-preview');
+  const t = name && DEPLOY_TARGETS ? DEPLOY_TARGETS[name] : null;
+  if(!t){ preview.textContent = ''; return; }
+  const cats = t.categories || {};
+  const first = Object.values(cats)[0];
+  preview.textContent = first ? `e.g. ${name}:${first.remote_root}` : 'no path mappings configured';
+}
+document.getElementById('hf-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const model = document.getElementById('hf-model').value;
+  if(!model){ alert('List files first.'); return; }
+  const quants = JSON.parse(document.getElementById('hf-quants-hidden').value || '[]');
+  if(!quants.length){ alert('Select at least one quant.'); return; }
+  const target = document.getElementById('hf-target').value;
+  const submit = document.getElementById('hf-submit');
+  const indicator = document.getElementById('hf-indicator');
+  const result = document.getElementById('hf-result');
+  indicator.classList.remove('hidden');
+  submit.disabled = true;
+  try {
+    const fd = new FormData();
+    fd.append('model', model);
+    quants.forEach(q => fd.append('quants', q));
+    fd.append('no_mmproj', document.getElementById('hf-no-mmproj').checked ? 'on' : '');
+    fd.append('dry_run', document.getElementById('hf-dry-run').checked ? 'on' : '');
+    if(target){ fd.append('target', target); fd.append('category', document.getElementById('hf-category').value); }
+    const r = await fetch('/api/deploy', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.ok) {
+      result.innerHTML = `<p class="text-emerald-300">✓ Queued${target ? ' deploy' : ' (cache-only)'} — see the Jobs page.</p>`;
+      window.location.href = '/jobs#' + data.job_id;
+    } else {
+      result.innerHTML = `<p class="text-red-400">${data.error || 'failed'}</p>`;
+    }
+  } catch(err) {
+    result.innerHTML = `<p class="text-red-400">${err}</p>`;
+  } finally {
+    indicator.classList.add('hidden');
+    submit.disabled = false;
+  }
+};
+</script>
+{% endblock %}

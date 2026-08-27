@@ -1,0 +1,9 @@
+.venv/
+.pwb/
+_shots/
+__pycache__/
+*.pyc
+.git/
+uv.lock
+config.yaml
+model_repo.db
