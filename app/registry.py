@@ -244,43 +244,157 @@ def build_deploy_plan(provider: RepoProvider, model: str, quants: list[str],
     return {"repo_id": repo_id, "model_name": model_name, "plan": deduped}
 
 
+def _remote_file_sizes(provider: RepoProvider, repo_id: str) -> dict[str, int | None]:
+    """Best-effort ``{filename: size_bytes}`` for a repo.
+
+    Returns an empty dict when the provider can't report sizes (method not
+    implemented) or the call fails — callers then treat existing files as up to
+    date and never re-download on that basis alone.
+    """
+    try:
+        sizes = provider.list_files_with_sizes(repo_id)
+    except NotImplementedError:
+        return {}
+    except Exception as e:
+        print(f"  !! could not get remote sizes for {repo_id}: {e}")
+        return {}
+    return sizes or {}
+
+
+def _download_and_place(provider: RepoProvider, repo_id: str, remote_file: str,
+                        local_path: str, repo_root: str, local_name: str,
+                        on_step=None) -> None:
+    """Download one file into repo_root and relocate it to ``local_path``."""
+    path = provider.download(repo_id, remote_file, repo_root)
+    if os.path.normpath(path) != os.path.normpath(local_path):
+        parent = os.path.dirname(local_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        shutil.move(path, local_path)
+    if on_step:
+        on_step({"action": "download", "remote_file": remote_file, "local": local_name})
+
+
 def ensure_cached(provider: RepoProvider, plan: dict, repo_root: str,
-                  dry_run: bool = False, on_step=None) -> list[str]:
+                  dry_run: bool = False, on_step=None,
+                  check_staleness: bool = True, force_refresh: bool = False,
+                  should_cancel=None) -> list[str]:
     """Download any missing files from a build_deploy_plan() into repo_root.
 
     Files are stored mirroring the source layout: each item lands at
     ``repo_root/<local_name>`` where ``local_name`` is the HF-relative path for
     model files (subfolders preserved) or a friendly name for aux files such as
-    mmproj. Files already on disk are reported as "cached" and skipped (the
-    server-as-cache fast path). Returns the local paths that should be present
-    afterward, so the caller can deploy (sync) them to a target.
+    mmproj.
+
+    A file already on disk is normally reported as "cached" and skipped (the
+    server-as-cache fast path). If ``check_staleness`` is set, its size is
+    compared against the hub's copy: a mismatch means the file was re-released or
+    corrected upstream, so it is overwritten rather than serving a stale cache.
+    ``force_refresh`` always overwrites regardless of size. When remote sizes are
+    unavailable the local file is left untouched (best-effort).
+
+    Returns the local paths that should be present afterward, so the caller can
+    deploy (sync) them to a target.
     """
     local_paths: list[str] = []
+    remote_sizes = _remote_file_sizes(provider, plan["repo_id"]) if (check_staleness or force_refresh) else {}
+
     for item in plan["plan"]:
+        if should_cancel and should_cancel():
+            # Cancelled mid-transfer: stop before starting the next file.
+            if on_step:
+                on_step({"action": "cancelled", "remote_file": item["remote_file"], "local": item["local_name"]})
+            break
+        remote_file = item["remote_file"]
         local_name = item["local_name"]
         local_path = os.path.join(repo_root, local_name)
+        remote_size = remote_sizes.get(remote_file)
+
         if os.path.exists(local_path):
+            stale = False
+            if force_refresh:
+                stale = True
+            elif check_staleness and remote_size is not None:
+                try:
+                    stale = os.path.getsize(local_path) != remote_size
+                except OSError:
+                    stale = True
+            if stale:
+                # Local copy differs from the hub (re-released / corrected file):
+                # refresh it so we never download or sync a stale version.
+                if dry_run:
+                    if on_step:
+                        on_step({"action": "dry-run", "remote_file": remote_file, "local": local_name})
+                    local_paths.append(local_path)
+                    continue
+                try:
+                    _download_and_place(provider, plan["repo_id"], remote_file, local_path,
+                                        repo_root, local_name, on_step)
+                except Exception as e:
+                    if on_step:
+                        on_step({"action": "download-error", "remote_file": remote_file, "error": str(e)})
+                continue
             if on_step:
-                on_step({"action": "cached", "remote_file": item["remote_file"], "local": local_name})
+                on_step({"action": "cached", "remote_file": remote_file, "local": local_name})
             local_paths.append(local_path)
             continue
+
         if dry_run:
             if on_step:
-                on_step({"action": "dry-run", "remote_file": item["remote_file"], "local": local_name})
+                on_step({"action": "dry-run", "remote_file": remote_file, "local": local_name})
             continue
         try:
-            path = provider.download(plan["repo_id"], item["remote_file"], repo_root)
-            # hf_hub_download preserves the source layout; relocate only when the
-            # plan's target name differs (e.g. a friendly mmproj filename).
-            if os.path.normpath(path) != os.path.normpath(local_path):
-                parent = os.path.dirname(local_path)
-                if parent:
-                    os.makedirs(parent, exist_ok=True)
-                shutil.move(path, local_path)
-            if on_step:
-                on_step({"action": "download", "remote_file": item["remote_file"], "local": local_name})
+            _download_and_place(provider, plan["repo_id"], remote_file, local_path,
+                                repo_root, local_name, on_step)
             local_paths.append(local_path)
         except Exception as e:
             if on_step:
-                on_step({"action": "download-error", "remote_file": item["remote_file"], "error": str(e)})
+                on_step({"action": "download-error", "remote_file": remote_file, "error": str(e)})
     return local_paths
+
+
+def _file_status(cached: bool, size_remote: int | None, local_path: str) -> dict:
+    """Build a per-file status record. ``up_to_date`` is only meaningful when the
+    remote size is known; otherwise it stays False (can't tell)."""
+    size_local = None
+    up_to_date = False
+    if cached and size_remote is not None:
+        try:
+            size_local = os.path.getsize(local_path)
+            up_to_date = size_local == size_remote
+        except OSError:
+            pass
+    return {"cached": cached, "up_to_date": up_to_date,
+            "size_local": size_local, "size_remote": size_remote}
+
+
+def check_cache_status(provider: RepoProvider, plan: dict, repo_root: str) -> list[dict]:
+    """Per-plan-item cache status vs the hub, for UI badges ('update available')."""
+    remote_sizes = _remote_file_sizes(provider, plan["repo_id"])
+    out = []
+    for item in plan["plan"]:
+        rf = item["remote_file"]
+        local_path = os.path.join(repo_root, item["local_name"])
+        out.append({
+            "remote_file": rf, "local_name": item["local_name"], "kind": item["kind"],
+            **_file_status(os.path.exists(local_path), remote_sizes.get(rf), local_path),
+        })
+    return out
+
+
+def cache_status_for_repo(provider: RepoProvider, repo_id: str, repo_root: str) -> dict[str, dict]:
+    """Cache status for every GGUF file in a repo (repo-level; no quants needed).
+
+    Maps each remote filename to {cached, up_to_date, size_local, size_remote},
+    used by the UI to flag already-downloaded files that have an update available.
+    """
+    try:
+        files = provider.list_files(repo_id)
+    except Exception:
+        files = []
+    remote_sizes = _remote_file_sizes(provider, repo_id)
+    out: dict[str, dict] = {}
+    for f in files:
+        local_path = os.path.join(repo_root, f)
+        out[f] = _file_status(os.path.exists(local_path), remote_sizes.get(f), local_path)
+    return out

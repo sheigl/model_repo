@@ -36,6 +36,8 @@ def run_hf_download(
     dry_run: bool = False,
     no_mmproj: bool = False,
     on_step=None,
+    check_staleness: bool = True,
+    should_cancel=None,
 ) -> dict:
     """Run an HF download job. Returns a summary dict; streams steps via callback."""
     provider = HuggingFaceProvider(token=os.environ.get(token_env))
@@ -61,7 +63,8 @@ def run_hf_download(
     if not plan["plan"]:
         return {"ok": False, "repo": repo_id, "message": "No GGUF files found"}
 
-    ensure_cached(provider, plan, output_dir, dry_run=dry_run, on_step=emit)
+    ensure_cached(provider, plan, output_dir, dry_run=dry_run, on_step=emit,
+                  check_staleness=check_staleness, should_cancel=should_cancel)
 
     return {"ok": True, "repo": repo_id, "downloaded": counts["downloaded"],
             "skipped": counts["skipped"], "dry_run": dry_run}

@@ -1,13 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Deploy — Model Deployment{% endblock %}
 {% block content %}
-<h1 class="mb-4 text-xl font-semibold">Deploy from model source</h1>
-<p class="mb-6 text-sm text-slate-400">The model hub is the source of truth; this server is a cache. Pick a model, quant(s) and mmproj, choose a target, and the app downloads anything not already cached, then syncs it to the target.</p>
+<h1 class="mb-4 text-xl font-semibold text-ink">Deploy from model source</h1>
+<p class="mb-6 text-sm text-slate-500">The model hub is the source of truth; this server is a cache. Pick a model, quant(s) and mmproj, choose a target, and the app downloads anything not already cached, then syncs it to the target.</p>
+
+<div id="local-disk" class="mb-4 rounded-lg border border-line bg-surface-alt px-3 py-2">
+  <div class="flex items-center justify-between gap-3">
+    <span class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Local cache</span>
+    <span class="ldisk-meta text-xs text-slate-500">checking…</span>
+  </div>
+  <div class="ldisk-bar mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-200"><div class="h-full bg-brand transition-all"></div></div>
+</div>
 
 <div class="card mb-6">
   <div class="flex flex-wrap gap-3 items-end">
     <div class="flex-1 min-w-[240px]">
-      <label class="text-xs uppercase text-slate-400">Model or repo ID</label>
+      <label class="text-xs uppercase text-slate-500">Model or repo ID</label>
       <input type="text" id="hf-repo" class="input" placeholder="e.g. unsloth/Mistral-7B-v0.3-GGUF">
     </div>
     <button class="btn-ghost" onclick="listFiles()">List files</button>
@@ -24,7 +32,7 @@
 
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <div>
-        <label class="mb-1 block text-xs uppercase text-slate-400">Target machine</label>
+        <label class="mb-1 block text-xs uppercase text-slate-500">Target machine</label>
         <select name="target" id="hf-target" class="input" onchange="onDeployTargetChange()">
           <option value="">— cache only (just download) —</option>
           {% for name, t in targets.items() %}
@@ -33,7 +41,7 @@
         </select>
       </div>
       <div>
-        <label class="mb-1 block text-xs uppercase text-slate-400">Category</label>
+        <label class="mb-1 block text-xs uppercase text-slate-500">Category</label>
         <select name="category" id="hf-category" class="input">
           <option value="">auto (inferred)</option>
           {% for c in all_categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
@@ -42,7 +50,7 @@
       </div>
     </div>
 
-    <div id="hf-indicator" class="hidden text-sm text-indigo-300 mt-3">enqueuing…</div>
+    <div id="hf-indicator" class="hidden text-sm text-slate-600 mt-3">enqueuing…</div>
     <button type="submit" class="btn-primary mt-3" id="hf-submit">Deploy</button>
     <div id="hf-result" class="mt-2"></div>
   </form>
@@ -63,7 +71,7 @@ var DEPLOY_TARGETS = {{ deploy_targets | tojson }};
       {% for j in recent %}
       <tr>
         <td class="font-medium">{{ j.description }}</td>
-        <td><span class="badge {% if j.status.value == 'done' %}bg-emerald-900/60 text-emerald-200{% elif j.status.value == 'failed' %}bg-red-900/60 text-red-200{% else %}bg-slate-700 text-slate-200{% endif %}">{{ j.status.value }}</span></td>
+        <td><span class="badge {% if j.status.value == 'done' %}bg-ok/10 text-ok{% elif j.status.value == 'failed' %}bg-err/10 text-err{% else %}bg-slate-100 text-slate-600{% endif %}">{{ j.status.value }}</span></td>
         <td class="text-slate-300 text-xs">{{ j.result.get('synced', j.result.get('downloaded', '')) }}synced / {{ j.result.get('failed', j.result.get('skipped', '')) }}err</td>
         <td class="text-slate-500 text-xs">{{ j.created_at }}</td>
       </tr>
@@ -76,27 +84,61 @@ var DEPLOY_TARGETS = {{ deploy_targets | tojson }};
 
 {% block scripts %}
 <script>
-function listFiles(){
+var DISK = {{ disk_cache | tojson }};
+function humanBytes(n){
+  if(!n && n!==0) return '—';
+  var u=['B','KB','MB','GB','TB','PB'], v=n, i=0;
+  while(v>=1024 && i<u.length-1){ v/=1024; i++; }
+  return (v>=10 ? v.toFixed(0)+' '+u[i] : v.toFixed(1)+' '+u[i]);
+}
+function pctOf(d){ return d.pct!=null ? d.pct : (d.total ? Math.round(d.used/d.total*100) : 0); }
+function renderLocalDisk(){
+  var box = document.getElementById('local-disk');
+  if(!box) return;
+  var l = DISK && DISK.local;
+  if(l){
+    var p = pctOf(l);
+    box.querySelector('.ldisk-bar > div').style.width = p+'%';
+    box.querySelector('.ldisk-meta').textContent = humanBytes(l.used)+' used · '+humanBytes(l.free)+' free ('+p+'%)';
+  } else {
+    box.querySelector('.ldisk-bar > div').style.width='0%';
+    box.querySelector('.ldisk-meta').textContent='not available';
+  }
+}
+renderLocalDisk();
+setInterval(renderLocalDisk, 30000);
+fetch('/api/disk').then(r=>r.json()).then(d=>{ DISK = d || {local:null}; renderLocalDisk(); }).catch(()=>{});
+
+function cacheBadge(cs){
+  if(!cs || !cs.cached) return '';
+  return cs.up_to_date
+    ? '<span class="badge !px-2 !text-[10px] bg-ok/10 text-ok ml-1.5">cached</span>'
+    : '<span class="badge !px-2 !text-[10px] bg-warn/10 text-warn ml-1.5">update available</span>';
+}
+async function listFiles(){
   const repo = document.getElementById('hf-repo').value.trim();
   if(!repo) return;
   const out = document.getElementById('hf-list-out');
   out.innerHTML = '<p class="text-sm text-slate-400">listing…</p>';
-  fetch(`/api/hf/list?repo=${encodeURIComponent(repo)}`)
-    .then(r => r.json())
-    .then(data => {
-      document.getElementById('hf-model').value = data.repo;
-      if(!data.files.length){ out.innerHTML='<p class="text-sm text-slate-400">No GGUF files.</p>'; return; }
-      let html = '<div class="mb-3"><p class="text-xs uppercase text-slate-500 mb-2">'+data.repo+' — available files</p><div class="grid gap-1 max-h-64 overflow-auto">';
-      data.files.forEach(f => {
-        const q = f.replace(/^mmproj-/,'').replace(/\.gguf$/,'');
-        const cls = f.indexOf('mmproj') === 0 ? 'hf-mmproj' : 'hf-q';
-        html += `<label class="flex items-center gap-2 text-sm py-1"><input type="checkbox" class="${cls}" value="${q}" onchange="updateQuants()"> ${f}</label>`;
-      });
-      html += '</div></div>';
-      out.innerHTML = html;
-      updateQuants();
-    })
-    .catch(e => out.innerHTML = `<p class="text-sm text-red-400">${e}</p>`);
+  try {
+    const [filesRes, cacheRes] = await Promise.all([
+      fetch(`/api/hf/list?repo=${encodeURIComponent(repo)}`),
+      fetch(`/api/cache/status?repo=${encodeURIComponent(repo)}`),
+    ]);
+    const data = await filesRes.json();
+    const cstat = (await cacheRes.json()).status || {};
+    document.getElementById('hf-model').value = data.repo;
+    if(!data.files.length){ out.innerHTML='<p class="text-sm text-slate-400">No GGUF files.</p>'; return; }
+    let html = '<div class="mb-3"><p class="text-xs uppercase text-slate-500 mb-2">'+data.repo+' — available files</p><div class="grid gap-1 max-h-64 overflow-auto">';
+    data.files.forEach(f => {
+      const q = f.replace(/^mmproj-/,'').replace(/\.gguf$/,'');
+      const cls = f.indexOf('mmproj') === 0 ? 'hf-mmproj' : 'hf-q';
+      html += `<label class="flex items-center gap-2 text-sm py-1"><input type="checkbox" class="${cls}" value="${q}" onchange="updateQuants()"> ${cacheBadge(cstat[f])}${f}</label>`;
+    });
+    html += '</div></div>';
+    out.innerHTML = html;
+    updateQuants();
+  } catch(e){ out.innerHTML = `<p class="text-sm text-err">${e}</p>`; }
 }
 function updateQuants(){
   const checked = [...document.querySelectorAll('.hf-q:checked')].map(c=>c.value);
@@ -137,13 +179,13 @@ document.getElementById('hf-form').onsubmit = async (e) => {
     const r = await fetch('/api/deploy', { method: 'POST', body: fd });
     const data = await r.json();
     if (data.ok) {
-      result.innerHTML = `<p class="text-emerald-300">✓ Queued${target ? ' deploy' : ' (cache-only)'} — see the Jobs page.</p>`;
+      result.innerHTML = `<p class="text-ok">✓ Queued${target ? ' deploy' : ' (cache-only)'} — see the Jobs page.</p>`;
       window.location.href = '/jobs#' + data.job_id;
     } else {
-      result.innerHTML = `<p class="text-red-400">${data.error || 'failed'}</p>`;
+      result.innerHTML = `<p class="text-err">${data.error || 'failed'}</p>`;
     }
   } catch(err) {
-    result.innerHTML = `<p class="text-red-400">${err}</p>`;
+    result.innerHTML = `<p class="text-err">${err}</p>`;
   } finally {
     indicator.classList.add('hidden');
     submit.disabled = false;

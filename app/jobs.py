@@ -24,6 +24,7 @@ class JobStatus(str, Enum):
     RUNNING = "running"
     DONE = "done"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 @dataclass
@@ -40,8 +41,19 @@ class Job:
     finished_at: float | None = None
     meta: dict = field(default_factory=dict)
 
+    # Not a dataclass attribute (set dynamically in JobQueue.create): a per-job
+    # cancel signal the worker polls while running. Kept out of the dataclass so
+    # asdict()/to_dict() never try to copy its internal lock.
+
+    def cancel(self) -> None:
+        self._cancel.set()
+
+    def is_cancelled(self) -> bool:
+        return self._cancel.is_set()
+
     def to_dict(self) -> dict:
         d = asdict(self)
+        d.pop("_cancel", None)
         d["status"] = self.status.value
         return d
 
@@ -59,10 +71,25 @@ class JobQueue:
     def create(self, kind: str, description: str, **meta) -> Job:
         job_id = f"{kind}-{int(time.time()*1000)}"
         job = Job(id=job_id, kind=kind, description=description, **meta)
+        job._cancel = threading.Event()
         with self._lock:
             self._jobs[job_id] = job
             self._order.append(job_id)
         return job
+
+    def cancel_job(self, job_id: str) -> bool:
+        """Cancel a queued or running job. Returns False for unknown or terminal jobs."""
+        job = self.get(job_id)
+        if not job:
+            return False
+        if job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
+            job.cancel()
+            return True
+        return False
+
+    def is_cancelled(self, job_id: str) -> bool:
+        job = self.get(job_id)
+        return bool(job) and job.is_cancelled()
 
     def get(self, job_id: str) -> Job | None:
         return self._jobs.get(job_id)
@@ -92,16 +119,24 @@ class JobQueue:
                 time.sleep(0.2)
                 continue
             job = self._jobs[next_id]
+            if job.is_cancelled():
+                # Cancelled while queued: skip it entirely.
+                job.status = JobStatus.CANCELLED
+                job.finished_at = time.time()
+                continue
             job.status = JobStatus.RUNNING
             job.started_at = time.time()
             try:
                 runner(job, lambda line: self._emit(job, line))
                 if job.status == JobStatus.RUNNING:
-                    job.status = JobStatus.DONE
-                    job.progress = 100.0
+                    # Runner polls is_cancelled() and stops early; surface that.
+                    job.status = JobStatus.CANCELLED if job.is_cancelled() else JobStatus.DONE
+                    if not job.is_cancelled():
+                        job.progress = 100.0
             except Exception as e:
-                job.status = JobStatus.FAILED
-                job.result = {"error": str(e)}
+                job.status = JobStatus.CANCELLED if job.is_cancelled() else JobStatus.FAILED
+                if not job.is_cancelled():
+                    job.result = {"error": str(e)}
             job.finished_at = time.time()
 
     def stop(self):

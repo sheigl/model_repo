@@ -4,10 +4,10 @@
     
 <div class="mb-5 flex flex-col items-start justify-between gap-4 md:flex-row md:items-end">
   <div>
-    <h1 class="text-2xl font-semibold tracking-tight text-white">Model hub</h1>
-    <p class="mt-1 text-sm text-slate-400">Search the upstream source, or browse what's cached — then deploy to a target.</p>
+    <h1 class="text-2xl font-semibold tracking-tight text-ink">Model hub</h1>
+    <p class="mt-1 text-sm text-slate-500">Search the upstream source, or browse what's cached — then deploy to a target.</p>
   </div>
-  <div class="flex items-center gap-1 rounded-xl border border-ink-600 bg-ink-800/40 p-1">
+  <div class="flex items-center gap-1 rounded-lg border border-line bg-surface-alt p-1">
     <button class="tab tab-on" id="tab-hub" onclick="switchTab('hub')">Browse hub</button>
     <button class="tab" id="tab-cache" onclick="switchTab('cache')">Your cache</button>
   </div>
@@ -17,21 +17,21 @@
 <section id="view-hub">
   <div class="mb-4 flex flex-col gap-3 md:flex md:items-center md:flex-wrap md:gap-3">
     <div class="relative w-full md:flex-[2] min-w-0">
-      <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">⌕</span>
+      <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
       <input id="hub-q" class="input pl-9" placeholder="Search the hub… e.g. llama, qwen, whisper, flux"
              onkeydown="if(event.key==='Enter')hubSearch(0)">
     </div>
     <div class="flex flex-wrap items-center gap-3">
-      <label class="flex items-center gap-2 text-sm text-slate-300">
-        <input type="checkbox" id="hub-gguf" class="accent-accent" checked onchange="hubSearch(0)"> GGUF only
+      <label class="flex items-center gap-2 text-sm text-slate-600">
+        <input type="checkbox" id="hub-gguf" class="accent-brand rounded" checked onchange="hubSearch(0)"> GGUF only
       </label>
       <button class="btn-primary md:w-auto" onclick="hubSearch(0)">Search</button>
     </div>
   </div>
 
   <div id="hub-chrome" class="mb-3 hidden flex-col items-start justify-between gap-2 sm:flex sm:flex-row sm:items-center">
-    <span id="hub-count" class="text-xs text-slate-400"></span>
-    <label class="flex items-center gap-1.5 text-xs text-slate-300">
+    <span id="hub-count" class="text-xs text-slate-500"></span>
+    <label class="flex items-center gap-1.5 text-xs text-slate-600">
       Sort
       <select id="hub-sort" class="input !py-1 max-w-[190px] text-xs" onchange="sortHub()">
         <option value="downloads">Most downloaded</option>
@@ -52,7 +52,7 @@
 <section id="view-cache" class="hidden">
   <div class="mb-4 flex flex-col gap-3 md:flex md:items-center md:flex-wrap md:gap-3">
     <div class="relative w-full md:flex-[2] min-w-0">
-      <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">⌕</span>
+      <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
       <input id="cache-q" class="input pl-9" placeholder="Filter your cache…" oninput="debounceCache()">
     </div>
     <div class="flex flex-wrap items-center gap-3">
@@ -69,31 +69,31 @@
 
 <!-- DETAIL DRAWER (HF-style) -->
 <div id="drawer" class="fixed inset-0 z-50 hidden">
-  <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeDrawer()"></div>
-  <div class="absolute right-0 top-0 h-full w-full max-w-lg overflow-y-auto border-l border-ink-700 bg-ink-900 shadow-2xl">
-    <div class="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-ink-700/70 bg-ink-900/95 p-4 backdrop-blur">
+  <div class="absolute inset-0 bg-black/40" onclick="closeDrawer()"></div>
+  <div class="absolute right-0 top-0 h-full w-full max-w-lg overflow-y-auto border-l border-line bg-card shadow-[0_20px_25px_-5px_rgba(0,0,0,.1),0_8px_10px_-6px_rgba(0,0,0,.1)]">
+    <div class="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-line bg-card/95 p-4 backdrop-blur">
       <div class="flex items-start gap-2.5 min-w-0">
-        <span id="dw-avatar" class="mt-px flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-faint text-sm font-semibold text-accent-soft">#</span>
+        <span id="dw-avatar" class="mt-px flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-800 text-sm font-semibold text-slate-300">#</span>
         <div class="min-w-0">
-          <p id="dw-sub" class="text-[11px] uppercase tracking-wide text-slate-500"></p>
-          <h2 id="dw-title" class="truncate text-lg font-semibold tracking-tight text-white"></h2>
+          <p id="dw-sub" class="text-[11px] font-semibold uppercase tracking-wide text-slate-400"></p>
+          <h2 id="dw-title" class="truncate text-lg font-semibold tracking-tight text-ink"></h2>
         </div>
       </div>
       <button class="btn-ghost h-8 w-8 p-0 shrink-0" onclick="closeDrawer()">✕</button>
     </div>
-    <div id="dw-stats" class="flex items-center gap-4 border-b border-ink-700/60 px-4 py-2.5 text-xs text-slate-400"></div>
-    <div class="flex gap-1 border-b border-ink-700 px-4">
+    <div id="dw-stats" class="flex items-center gap-4 border-b border-line px-4 py-2.5 text-xs text-slate-500"></div>
+    <div class="flex gap-1 border-b border-line px-4">
       <button id="tab-btn-files" class="tab tab-on !px-3 !py-2 text-sm" onclick="switchDrawerTab('files')">Files</button>
-      <button id="tab-btn-meta" class="tab !px-3 !py-2 text-sm text-slate-400" onclick="switchDrawerTab('meta')">Metadata</button>
+      <button id="tab-btn-meta" class="tab !px-3 !py-2 text-sm text-slate-500" onclick="switchDrawerTab('meta')">Metadata</button>
     </div>
     <div class="p-4">
       <!-- FILES PANEL -->
       <div id="panel-files">
         <div class="mb-3 flex items-center justify-between">
           <span class="label !mb-0">Files / quantizations</span>
-          <span id="dw-filecount" class="text-[11px] text-slate-500"></span>
+          <span id="dw-filecount" class="text-[11px] text-slate-400"></span>
         </div>
-        <div class="max-h-72 overflow-auto rounded-xl border border-ink-700 bg-ink-850/50">
+        <div class="max-h-72 overflow-auto rounded-lg border border-line bg-surface-alt">
           <div id="dw-files" class="text-sm"></div>
         </div>
 
@@ -115,9 +115,9 @@
               <option value="3d">3d</option><option value="audio-gen">audio-gen</option><option value="detection-seg">detection-seg</option><option value="embedding">embedding</option><option value="image-gen">image-gen</option><option value="image-lora">image-lora</option><option value="image-text-encoder">image-text-encoder</option><option value="llm">llm</option><option value="openvino">openvino</option><option value="unknown">unknown</option><option value="upscaler">upscaler</option><option value="vae">vae</option><option value="video-gen">video-gen</option><option value="vision-projector">vision-projector</option>
             </select>
           </div>
-          <div class="flex flex-wrap items-center gap-4 text-sm text-slate-300">
-            <label class="flex items-center gap-2"><input type="checkbox" id="dw-mmproj" class="accent-accent"> include mmproj</label>
-            <label class="flex items-center gap-2"><input type="checkbox" id="dw-dry" class="accent-accent"> dry run</label>
+          <div class="flex flex-wrap items-center gap-4 text-sm text-slate-600">
+            <label class="flex items-center gap-2"><input type="checkbox" id="dw-mmproj" class="accent-brand rounded"> include mmproj</label>
+            <label class="flex items-center gap-2"><input type="checkbox" id="dw-dry" class="accent-brand rounded"> dry run</label>
           </div>
           <button class="btn-primary w-full" id="dw-deploy" onclick="drawerDeploy()">Deploy</button>
           <p id="dw-result" class="text-sm"></p>
@@ -126,8 +126,8 @@
 
       <!-- METADATA PANEL -->
       <div id="panel-meta" class="hidden">
-        <div class="rounded-xl border border-ink-700 bg-ink-850/40 p-3">
-          <p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Model details</p>
+        <div class="rounded-lg border border-line bg-surface-alt p-3">
+          <p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Model details</p>
           <ul id="dw-meta-list" class="space-y-2.5 text-xs"></ul>
         </div>
       </div>
@@ -156,11 +156,11 @@ async function hubSearch(loadMore){
     const d = await r.json();
     hubMore = d.has_more;
     if(!loadMore){ grid.innerHTML=''; hubResults=[]; }
-    if(d.error){ grid.innerHTML = `<p class="text-sm text-rose">${d.error}</p>`; chrome.classList.add('hidden'); return; }
+    if(d.error){ grid.innerHTML = `<p class="text-sm text-err">${d.error}</p>`; chrome.classList.add('hidden'); return; }
     (d.results||[]).forEach(m => hubResults.push(m));
     sortHub();
     document.getElementById('hub-more').classList.toggle('hidden', !hubMore);
-  } catch(e){ grid.innerHTML = `<p class="text-sm text-rose">${e}</p>`; }
+  } catch(e){ grid.innerHTML = `<p class="text-sm text-err">${e}</p>`; }
 }
 function sortHub(){
   const key = document.getElementById('hub-sort').value;
@@ -182,21 +182,21 @@ function hubCard(m){
   const dl = m.downloads>=1000 ? (m.downloads/1000).toFixed(1)+'k' : (m.downloads||0);
   const tags = (m.tags||[]).filter(t=>!['gguf','text-generation'].includes(t)).slice(0,3).map(t=>`<span class="chip !px-2 !text-[10px] !whitespace-nowrap">${t}</span>`).join('');
   const updated = m.last_modified ? ' · '+relDate(m.last_modified) : '';
-  return `<div class="card !p-4 cursor-pointer transition hover:border-accent/50 hover:bg-ink-800/80" onclick="selectAndOpen(${safeJson(m)})">
+  return `<div class="card !p-4 cursor-pointer transition hover:border-line hover:bg-surface-alt" onclick="selectAndOpen(${safeJson(m)})">
     <div class="mb-2 flex items-start gap-2.5">
-      <span class="mt-px flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-faint text-xs font-semibold text-accent-soft">${hfInitial(m.author||m.id)}</span>
+      <span class="mt-px flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-800 text-xs font-semibold text-slate-300">${hfInitial(m.author||m.id)}</span>
       <div class="min-w-0 flex-1">
-        <p class="truncate text-sm font-semibold leading-snug text-white" title="${m.id}">${m.id}</p>
-        ${m.author?`<p class="mt-0.5 truncate text-xs text-slate-400">${m.author}</p>`:''}
+        <p class="truncate text-sm font-semibold leading-snug text-ink" title="${m.id}">${m.id}</p>
+        ${m.author?`<p class="mt-0.5 truncate text-xs text-slate-500">${m.author}</p>`:''}
       </div>
-      ${m.pipeline?`<span class="badge shrink-0 bg-accent-faint/60 text-accent-soft">${m.pipeline}</span>`:''}
+      ${m.pipeline?`<span class="badge shrink-0 bg-slate-100 text-slate-600">${m.pipeline}</span>`:''}
     </div>
     ${tags?`<div class="mb-2 flex flex-wrap gap-1">${tags}</div>`:''}
-    <div class="mt-2 flex items-center gap-2 text-[11px] font-medium text-slate-300">
-      <span title="likes"><span class="text-accent-soft">♥</span>${m.likes||0}</span>
-      <span class="text-slate-500 select-none" aria-hidden="true">·</span>
-      <span title="downloads"><span class="text-accent-soft">⬇</span>${dl}</span>
-      <span class="text-slate-500 select-none" aria-hidden="true">·</span>
+    <div class="mt-2 flex items-center gap-2 text-[11px] font-medium text-slate-600">
+      <span title="likes"><span class="text-slate-400" aria-hidden="true">♥</span>${m.likes||0}</span>
+      <span class="text-slate-400 select-none" aria-hidden="true">·</span>
+      <span title="downloads"><span class="text-slate-400" aria-hidden="true">⬇</span>${dl}</span>
+      <span class="text-slate-400 select-none" aria-hidden="true">·</span>
       <span>${updated?updated.replace(' · ',''):'files'}</span>
       <button class="btn-primary ml-auto !px-3 !py-1 text-xs" onclick="event.stopPropagation();selectAndOpen(${safeJson(m)})">Deploy</button>
     </div>
@@ -232,8 +232,9 @@ async function openHubRepo(repo){
     const files = d.files||[];
     const sizes = d.sizes||{};
     document.getElementById('dw-filecount').textContent = files.length+' files';
-    document.getElementById('dw-files').innerHTML = renderHubTree(files, sizes) || '<div class="px-3 py-4 text-center text-xs text-slate-500">no GGUF files</div>';
-  } catch(e){ document.getElementById('dw-files').innerHTML=`<tr><td colspan="3" class="px-3 py-4 text-center text-xs text-rose">${e}</td></tr>`; }
+    const cstat = d.cacheStatus || {};
+    document.getElementById('dw-files').innerHTML = renderHubTree(files, sizes, cstat) || '<div class="px-3 py-4 text-center text-xs text-slate-500">no GGUF files</div>';
+  } catch(e){ document.getElementById('dw-files').innerHTML=`<tr><td colspan="3" class="px-3 py-4 text-center text-xs text-err">${e}</td></tr>`; }
 }
 function renderStatsHub(m){
   const el = document.getElementById('dw-stats');
@@ -244,7 +245,7 @@ function renderStatsHub(m){
   }
 }
 function buildMetaHub(m){
-  const row=(l,v)=>`<li class="flex items-start justify-between gap-2"><span class="text-slate-400">${l}</span><span class="text-right font-mono text-slate-200 break-all">${v}</span></li>`;
+  const row=(l,v)=>`<li class="flex items-start justify-between gap-2"><span class="text-slate-500">${l}</span><span class="text-right font-mono text-xs text-ink break-all">${v}</span></li>`;
   const tagsHtml = (m.tags||[]).filter(t=>!['gguf'].includes(t)).slice(0,8)
     .map(t=>`<span class="chip !px-2 !text-[10px] !whitespace-nowrap">${t}</span>`).join('');
   const rows=[];
@@ -265,6 +266,12 @@ function switchDrawerTab(tab){
   else { meta.classList.remove('hidden'); files.classList.add('hidden'); bm.classList.add('tab-on'); bm.classList.remove('text-slate-400'); bf.classList.remove('tab-on'); bf.classList.add('text-slate-400'); }
 }
 function cssEq(s){ return String(s).replace(/["\\]/g,'\\$&'); }
+function leafBadge(cs){
+  if(!cs || !cs.cached) return '';
+  return cs.up_to_date
+    ? '<span class="badge !px-2 !text-[10px] bg-ok/10 text-ok ml-1.5">cached</span>'
+    : '<span class="badge !px-2 !text-[10px] bg-warn/10 text-warn ml-1.5">update available</span>';
+}
 function subTreeCount(n){ let c=n.files.length; for(const k in n.kids) c+=subTreeCount(n.kids[k]); return c; }
 function makeTree(files, sizes){
   const root={ name:'', files:[], kids:{}, _size:0, _count:0 };
@@ -284,41 +291,41 @@ function makeTree(files, sizes){
   root._count=subTreeCount(root);
   return root;
 }
-function mmprojLeaf(f, size){
+function mmprojLeaf(f, size, cs){
   const q=f.replace(/\.gguf$/,'');
-  return `<div class="flex items-center gap-3 px-3 py-1.5 hover:bg-ink-800/50">
-    <input type="checkbox" class="dw-mmproj accent-accent" value="${q}" data-file="${cssEq(f)}" title="${cssEq(f)}">
-    <span class="min-w-0 flex-1 truncate font-mono text-xs text-slate-200" title="${cssEq(f)}">${f}</span>
+  return `<div class="flex items-center gap-3 px-3 py-1.5 hover:bg-surface-alt">
+    <input type="checkbox" class="dw-mmproj accent-brand rounded" value="${q}" data-file="${cssEq(f)}" title="${cssEq(f)}">
+    <span class="min-w-0 flex-1 truncate font-mono text-xs text-ink" title="${cssEq(f)}">${f}${leafBadge(cs)}</span>
     <span class="shrink-0 text-right text-[11px] ${size==null?'text-slate-600':'text-slate-400'}">${formatSize(size)}</span>
   </div>`;
 }
-function treeLeaf(f, size){
+function treeLeaf(f, size, cs){
   const q=f.replace(/\.gguf$/,'');
   const base=f.split('/').pop();
-  return `<div class="flex items-center gap-3 px-3 py-1.5 hover:bg-ink-800/50">
-    <input type="checkbox" class="dw-quant accent-accent" value="${q}" data-file="${cssEq(f)}" title="${cssEq(f)}">
-    <span class="min-w-0 flex-1 truncate font-mono text-xs text-slate-200" title="${cssEq(f)}">${base}</span>
+  return `<div class="flex items-center gap-3 px-3 py-1.5 hover:bg-surface-alt">
+    <input type="checkbox" class="dw-quant accent-brand rounded" value="${q}" data-file="${cssEq(f)}" title="${cssEq(f)}">
+    <span class="min-w-0 flex-1 truncate font-mono text-xs text-ink" title="${cssEq(f)}">${base}${leafBadge(cs)}</span>
     <span class="shrink-0 text-right text-[11px] ${size==null?'text-slate-600':'text-slate-400'}">${formatSize(size)}</span>
   </div>`;
 }
 function folderRow(name, node, fp){
-  return `<div class="flex items-center gap-3 px-3 py-1.5 cursor-pointer hover:bg-ink-800/60 rounded" onclick="toggleExpand('${cssEq(fp)}')">
-    <span class="tree-caret w-6 shrink-0 text-center text-lg text-slate-300 cursor-pointer select-none" data-caret="${cssEq(fp)}">▸</span>
-    <input type="checkbox" class="dw-folder accent-accent" data-folder-select="${cssEq(fp)}" onclick="event.stopPropagation()" title="select all files in ${name}/">
-    <span class="min-w-0 flex-1 truncate font-medium text-sm text-slate-200">${name.replace(/\.gguf$/,'')}/</span>
+  return `<div class="flex items-center gap-3 px-3 py-1.5 cursor-pointer hover:bg-surface-alt rounded" onclick="toggleExpand('${cssEq(fp)}')">
+    <span class="tree-caret w-6 shrink-0 text-center text-lg text-slate-400 cursor-pointer select-none" data-caret="${cssEq(fp)}">▸</span>
+    <input type="checkbox" class="dw-folder accent-brand rounded" data-folder-select="${cssEq(fp)}" onclick="event.stopPropagation()" title="select all files in ${name}/">
+    <span class="min-w-0 flex-1 truncate font-medium text-sm text-ink">${name.replace(/\.gguf$/,'')}/</span>
     <span class="shrink-0 text-[11px] text-slate-500" data-count="${cssEq(fp)}">${node._count} files · ${formatSize(node._size)}</span>
   </div>`;
 }
-function renderFolder(node, depth, fp, sizes){
+function renderFolder(node, depth, fp, sizes, cs){
   const indent=20+depth*16;
   let out='';
   if(node.files && node.files.length)
-    out += node.files.map(f=>treeLeaf(f, sizes[f])).join('');
+    out += node.files.map(f=>treeLeaf(f, sizes[f], (cs||{})[f])).join('');
   for(const name of Object.keys(node.kids).sort()){
     const kid=node.kids[name];
     const kfp=fp? fp+'/'+name : name;
     out += folderRow(name, kid, kfp);
-    out += `<div class="tree-body hidden" data-for="${cssEq(kfp)}">${renderFolder(kid, depth+1, kfp, sizes)}</div>`;
+    out += `<div class="tree-body hidden" data-for="${cssEq(kfp)}">${renderFolder(kid, depth+1, kfp, sizes, cs)}</div>`;
   }
   return `<div style="padding-left:${indent}px">${out}</div>`;
 }
@@ -347,21 +354,21 @@ function refreshFolderBoxes(){
     box.indeterminate=checked>0 && checked<leaves.length;
   });
 }
-function renderHubTree(files, sizes){
+function renderHubTree(files, sizes, cstat){
   const root=makeTree(files, sizes);
   const mmproj=files.filter(f=>f.split('/').pop().toLowerCase().startsWith('mmproj'));
   if(!root._count && !root.files.length && !mmproj.length) return '';
   let out='';
   if(root.files && root.files.length)
-    out += root.files.map(f=>treeLeaf(f, sizes[f])).join('');
+    out += root.files.map(f=>treeLeaf(f, sizes[f], (cstat||{})[f])).join('');
   if(mmproj.length){
     out += `<div class="px-3 py-1.5 text-[11px] uppercase tracking-wide text-slate-500">Auxiliary (mmproj)</div>`;
-    out += mmproj.map(f=>`<div style="padding-left:24px">${mmprojLeaf(f, sizes[f])}</div>`).join('');
+    out += mmproj.map(f=>`<div style="padding-left:24px">${mmprojLeaf(f, sizes[f], (cstat||{})[f])}</div>`).join('');
   }
   for(const name of Object.keys(root.kids).sort()){
     const kid=root.kids[name];
     out += folderRow(name, kid, name);
-    out += `<div class="tree-body hidden" data-for="${cssEq(name)}">${renderFolder(kid,1,name,sizes)}</div>`;
+    out += `<div class="tree-body hidden" data-for="${cssEq(name)}">${renderFolder(kid,1,name,sizes,cstat)}</div>`;
   }
   return out;
 }
@@ -387,12 +394,12 @@ function drawerTargetChanged(){
 async function drawerDeploy(){
   const target = document.getElementById('dw-target').value;
   const category = document.getElementById('dw-category').value;
-  document.getElementById('dw-result').innerHTML='<p class="text-slate-300">enqueuing…</p>';
+  document.getElementById('dw-result').innerHTML='<p class="text-slate-600">enqueuing…</p>';
 
   // Cache mode: the model is already local — sync the path to the target.
   if(currentRepo.kind === 'cache'){
     const src = SOURCES.find(s=>s.name===currentRepo.source) || SOURCES[0];
-    if(!target){ document.getElementById('dw-result').innerHTML='<p class="text-rose">Pick a target.</p>'; return; }
+    if(!target){ document.getElementById('dw-result').innerHTML='<p class="text-err">Pick a target.</p>'; return; }
     const fd = new FormData();
     fd.append('source_root', src ? src.root : '');
     fd.append('local_path', currentRepo.path);
@@ -401,15 +408,15 @@ async function drawerDeploy(){
     fd.append('remote_root', (TARGETS[target] && TARGETS[target].categories[category]) || '');
     const r = await fetch('/api/sync',{method:'POST',body:fd});
     const d = await r.json();
-    if(d.ok){ document.getElementById('dw-result').innerHTML=`<p class="text-mint">✓ queued — <a class="underline" href="/jobs#${d.job_id}">view job</a></p>`; }
-    else { document.getElementById('dw-result').innerHTML=`<p class="text-rose">${d.error||'failed'}</p>`; }
+    if(d.ok){ document.getElementById('dw-result').innerHTML=`<p class="text-ok">✓ queued — <a class="underline" href="/jobs#${d.job_id}">view job</a></p>`; }
+    else { document.getElementById('dw-result').innerHTML=`<p class="text-err">${d.error||'failed'}</p>`; }
     return;
   }
 
   // Hub mode: pick quant(s), deploy = download-if-missing then rsync.
   let quants = [...document.querySelectorAll('.dw-quant:checked')].map(c=>c.value);
   const mm = document.querySelector('.dw-mmproj:checked') ? 'on':'';
-  if(!quants.length){ document.getElementById('dw-result').innerHTML='<p class="text-rose">Select at least one quant.</p>'; return; }
+  if(!quants.length){ document.getElementById('dw-result').innerHTML='<p class="text-err">Select at least one quant.</p>'; return; }
   const fd = new FormData();
   fd.append('model', currentRepo);
   quants.forEach(q=>fd.append('quants',q));
@@ -418,8 +425,8 @@ async function drawerDeploy(){
   if(target){ fd.append('target', target); fd.append('category', category); }
   const r = await fetch('/api/deploy',{method:'POST',body:fd});
   const d = await r.json();
-  if(d.ok){ document.getElementById('dw-result').innerHTML=`<p class="text-mint">✓ queued — <a class="underline" href="/jobs#${d.job_id}">view job</a></p>`; }
-  else { document.getElementById('dw-result').innerHTML=`<p class="text-rose">${d.error||'failed'}</p>`; }
+  if(d.ok){ document.getElementById('dw-result').innerHTML=`<p class="text-ok">✓ queued — <a class="underline" href="/jobs#${d.job_id}">view job</a></p>`; }
+  else { document.getElementById('dw-result').innerHTML=`<p class="text-err">${d.error||'failed'}</p>`; }
 }
 
 // CACHE VIEW
@@ -440,20 +447,20 @@ function cacheCard(m){
   const data = JSON.stringify({kind:'cache', path:m.path, source:m.source, category:m.category, name:m.name})
                    .replace(/"/g,'&quot;');
   const cat = m.category || 'model';
-  return `<div class="card !p-4 cursor-pointer transition hover:border-accent/50 hover:bg-ink-800/80" onclick='openCacheRepo(${data})'>
+  return `<div class="card !p-4 cursor-pointer transition hover:border-line hover:bg-surface-alt" onclick='openCacheRepo(${data})'>
     <div class="mb-2 flex items-start gap-2.5">
-      <span class="mt-px flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-faint text-xs font-semibold text-accent-soft">${cat.charAt(0).toUpperCase()}</span>
+      <span class="mt-px flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-800 text-xs font-semibold text-slate-300">${cat.charAt(0).toUpperCase()}</span>
       <div class="min-w-0 flex-1">
-        <p class="truncate text-sm font-semibold leading-snug text-white" title="${m.name}">${m.name}</p>
-        ${m.source?`<p class="mt-0.5 truncate text-xs text-slate-400">${m.source}</p>`:''}
+        <p class="truncate text-sm font-semibold leading-snug text-ink" title="${m.name}">${m.name}</p>
+        ${m.source?`<p class="mt-0.5 truncate text-xs text-slate-500">${m.source}</p>`:''}
       </div>
-      <span class="badge shrink-0 bg-accent-faint/60 text-accent-soft">${cat}</span>
+      <span class="badge shrink-0 bg-slate-100 text-slate-600">${cat}</span>
     </div>
-    <div class="mt-2 flex items-center gap-2 text-[11px] font-medium text-slate-300">
+    <div class="mt-2 flex items-center gap-2 text-[11px] font-medium text-slate-600">
       <span>${m.quant||'n/a'}</span>
-      <span class="text-slate-500 select-none" aria-hidden="true">·</span>
+      <span class="text-slate-400 select-none" aria-hidden="true">·</span>
       <span>${m.size_gb} GB</span>
-      <span class="text-slate-500 select-none" aria-hidden="true">·</span>
+      <span class="text-slate-400 select-none" aria-hidden="true">·</span>
       <span>${m.file_count}f</span>
       <button class="btn-primary ml-auto !px-3 !py-1 text-xs" onclick="event.stopPropagation();openCacheRepo(${data})">Sync</button>
     </div>
@@ -477,7 +484,7 @@ function renderStatsCache(m){
   document.getElementById('dw-stats').innerHTML = `<span>${m.category||'model'}</span><span>${m.size_gb} GB</span><span class="ml-auto text-slate-500">${m.source||''}</span>`;
 }
 function buildMetaCache(m){
-  const row=(l,v)=>`<li class="flex items-start justify-between gap-2"><span class="text-slate-400">${l}</span><span class="text-right font-mono text-slate-200 break-all">${v}</span></li>`;
+  const row=(l,v)=>`<li class="flex items-start justify-between gap-2"><span class="text-slate-500">${l}</span><span class="text-right font-mono text-xs text-ink break-all">${v}</span></li>`;
   const rows=[];
   if(m.category) rows.push(row('Category', m.category));
   if(m.quant) rows.push(row('Quantization', m.quant));

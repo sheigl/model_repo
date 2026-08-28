@@ -1,16 +1,16 @@
-<div class="border-t border-slate-700/60 pt-3" data-job="{{ j.id }}">
+<div class="border-line pt-3" data-job="{{ j.id }}">
   <div class="flex items-center justify-between gap-3">
     <div class="min-w-0">
-      <p class="font-medium text-white truncate">{{ j.description }}</p>
+      <p class="font-medium text-ink truncate">{{ j.description }}</p>
       <p class="text-xs text-slate-500">{{ j.id[:14] }} · {{ j.kind }} · {{ j.created_at }}</p>
     </div>
     <div class="flex items-center gap-3 shrink-0">
-      <span class="badge {% if j.status.value == 'done' %}bg-emerald-900/60 text-emerald-200{% elif j.status.value == 'failed' %}bg-red-900/60 text-red-200{% elif j.status.value == 'running' %}bg-indigo-900/60 text-indigo-200{% else %}bg-slate-700 text-slate-200{% endif %}">{{ j.status.value }}</span>
+      <span class="badge {% if j.status.value == 'done' %}bg-ok/10 text-ok{% elif j.status.value == 'failed' %}bg-err/10 text-err{% elif j.status.value == 'running' %}bg-info/10 text-info{% else %}bg-slate-100 text-slate-600{% endif %}">{{ j.status.value }}</span>
       <button class="btn-ghost" onclick="toggleLog('{{ j.id }}', this)">Show log</button>
     </div>
   </div>
-  <div class="mt-2 h-2 w-full overflow-hidden rounded bg-slate-700">
-    <div class="h-full bg-indigo-500 transition-all" style="width:{{ j.progress }}%"></div>
+  <div class="mt-2 h-2 w-full overflow-hidden rounded bg-slate-200">
+    <div class="h-full bg-brand transition-all" style="width:{{ j.progress }}%"></div>
   </div>
   <pre class="log hidden" data-stream="{{ j.id }}"></pre>
 </div>

@@ -4,82 +4,92 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}ModelDeploy{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class', theme: { extend: { colors: {
-    ink: { 950:'#0a0e16', 900:'#0f1522', 850:'#131a2a', 800:'#172033', 700:'#1e2a44', 600:'#2a3a5d' },
-    accent: { DEFAULT:'#6d5ef6', soft:'#8b7bfb', faint:'#4238a0' },
-    mint: '#34d399', amber:'#fbbf24', rose:'#fb7185', sky:'#38bdf8'
-  }}}}</script>
+    // Hugging Face dark-mode palette (see DESIGN.md): near-black navy background, dark card
+    // surfaces, near-white text, and the brand green #14a800 used for primary CTAs and links.
+    // Semantic hues are kept minimal and always paired with a label or icon so nothing is
+    // communicated by color alone. The slate ramp is inverted vs. default Tailwind so that a
+    // higher number renders brighter text on the dark background.
+    brand:   { DEFAULT:'#14a800', hover:'#0f8500' },
+    surface: { DEFAULT:'#0b0d0f', card:'#16181b', row:'#1c1e21', elevated:'#1f2226' },
+    line:    { DEFAULT:'#23262b', strong:'#2f3338' },
+    ink:     { DEFAULT:'#f7f7f8', muted:'#abadaf' },
+    ok:'#3fbf6e', err:'#ff9b9b', warn:'#e0a458', info:'#478de7',
+    card:'#16181b', muted:'#abadaf',
+    slate: { '50':'#16181b','100':'#1c1e21','200':'#2f3338','300':'#cfd3d6','400':'#abadaf','500':'#8a919a','600':'#7d828a','700':'#6b7280','800':'#4a5058','900':'#2b3035' }
+  }, extend: { fontFamily: {
+    display: ['Source Sans Pro','-apple-system','BlinkMacSystemFont','Segoe UI','Roboto','Helvetica Neue','Noto Sans','Arial','sans-serif'],
+    mono: ['IBM Plex Mono','ui-monospace','SFMono-Regular','Menlo','Monaco','Consolas','Liberation Mono','Courier New','monospace']
+  }}}}}</script>
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
   <script src="/static/app.js?v={{ app_version }}" defer></script>
   <style>
-    body { background: radial-gradient(1200px 600px at 70% -10%, #1a2340 0%, #0f1522 55%) fixed, #0a0e16; color:#e6eaf2; }
-    .glass { background: rgba(23,32,51,.7); backdrop-filter: blur(10px); }
+    body { background:#0b0d0f; color:#f7f7f8; font-family:'Source Sans Pro',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue','Noto Sans',Arial,sans-serif; }
     /* Component styles written as plain CSS (not @apply) so they don't depend on the Tailwind Play CDN compiling @apply in <style>, which is unreliable. */
-    .card { border-radius:16px; border:1px solid rgba(30,42,68,.8); background:rgba(19,26,42,.7); padding:20px; box-shadow:0 8px 30px rgba(0,0,0,.35); }
+    .card { border-radius:12px; border:1px solid #23262b; background:#16181b; padding:20px; box-shadow:0 1px 2px rgba(0,0,0,.05); }
     /* Base button shell shared by every variant (pages use btn-primary/btn-ghost directly, so the shell must live on each). */
-    .btn, .btn-primary, .btn-ghost, .btn-danger { display:inline-flex; align-items:center; justify-content:center; gap:8px; border-radius:8px; padding:8px 14px; font-size:14px; font-weight:500; transition:.15s ease; cursor:pointer; }
+    .btn, .btn-primary, .btn-ghost, .btn-danger { display:inline-flex; align-items:center; justify-content:center; gap:8px; border-radius:8px; padding:8px 14px; font-size:14px; font-weight:600; color:#f7f7f8; background:#1c1e21; border:1px solid #2f3338; cursor:pointer; transition-duration:.15s; transition-timing-function:cubic-bezier(.4,0,.2,1); transition-property:background-color,border-color,color; }
     .btn:disabled, .btn-primary:disabled, .btn-ghost:disabled, .btn-danger:disabled { opacity:.5; cursor:not-allowed; }
-    .btn-primary { background:#6d5ef6; color:#fff; box-shadow:0 10px 20px -5px rgba(109,94,246,.4); }
-    .btn-primary:hover { background:#8b7bfb; }
-    .btn-ghost  { border:1px solid #2a3a5d; background:rgba(23,32,51,.4); color:#cbd5e1; }
-    .btn-ghost:hover { background:#1e2a44; border-color:#2a3a5d; }
-    .btn-danger  { border:1px solid rgba(251,113,133,.4); color:#fb7185; }
-    .btn-danger:hover { background:rgba(251,113,133,.1); }
-    .input { width:100%; border-radius:8px; border:1px solid #2a3a5d; background:rgba(15,21,34,.7); padding:8px 12px; font-size:14px; color:#e2e8f0; min-height:44px; }
-    .input::placeholder { color:#475569; }
-    .input:focus { border-color:#6d5ef6; outline:none; box-shadow:0 0 0 3px rgba(109,94,246,.4); }
-    .label { margin-bottom:4px; display:block; font-size:12px; font-weight:500; text-transform:uppercase; letter-spacing:.05em; color:#64748b; }
-    .badge { display:inline-flex; align-items:center; border-radius:9999px; padding:2px 10px; font-size:11px; font-weight:600; }
-    .chip { display:inline-flex; align-items:center; gap:4px; border-radius:9999px; border:1px solid #2a3a5d; background:rgba(23,32,51,.6); padding:4px 10px; font-size:12px; color:#94a3b8; }
-    .tab { position:relative; display:inline-flex; align-items:center; gap:6px; border-radius:8px; padding:6px 12px; font-size:14px; font-weight:500; color:#64748b; transition:.15s ease; }
-    .tab:hover { color:#fff; }
-    .tab-on { color:#fff; background:#1e2a44; border:1px solid #2a3a5d; }
+    .btn-primary { background:#14a800; border-color:#14a800; color:#0b0d0f; }
+    .btn-primary:hover { background:#0f8500; border-color:#0f8500; }
+    .btn-ghost  { background:#1c1e21; border-color:#2f3338; color:#f7f7f8; }
+    .btn-ghost:hover { background:#23262b; border-color:#3a3f45; }
+    .btn-danger  { background:#1c1e21; border-color:#5a3a3d; color:#ff9b9b; }
+    .btn-danger:hover { background:#4a1f22; border-color:#ff6b6b; }
+    .input { width:100%; border-radius:8px; border:1px solid #2f3338; background:#0b0d0f; padding:8px 12px; font-size:14px; color:#f7f7f8; min-height:44px; }
+    .input::placeholder { color:#727980; }
+    .input:focus { outline:none; border-color:#14a800; box-shadow:0 0 0 2px rgba(20,168,0,.3); outline-offset:1px; }
+    .label { margin-bottom:4px; display:block; font-size:12px; font-weight:600; color:#abadaf; }
+    .badge { display:inline-flex; align-items:center; border-radius:9999px; padding:2px 10px; font-size:11px; font-weight:600; background:#23262b; color:#cfd3d6; white-space:nowrap; }
+    .chip { display:inline-flex; align-items:center; gap:4px; border-radius:9999px; border:1px solid #2f3338; background:#1c1e21; padding:4px 10px; font-size:12px; color:#abadaf; white-space:nowrap; }
+    .tab { position:relative; display:inline-flex; align-items:center; gap:6px; border-radius:8px; padding:6px 12px; font-size:14px; font-weight:500; color:#abadaf; transition-duration:.15s; transition-timing-function:cubic-bezier(.4,0,.2,1); transition-property:color,background-color;border-color; cursor:pointer; }
+    .tab:hover { color:#f7f7f8; }
+    .tab-on { color:#0b0d0f; background:#14a800; border:1px solid #14a800; }
     table { width:100%; text-align:left; font-size:14px; }
-    th { border-bottom:1px solid #1e2a44; padding:10px 12px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:#475569; }
-    td { border-bottom:1px solid rgba(23,32,51,.8); padding:10px 12px; }
-    pre.log { max-height:18rem; overflow:auto; border-radius:12px; border:1px solid #1e2a44; background:rgba(0,0,0,.4); padding:12px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; line-height:1.625; color:#34d399; }
+    th { border-bottom:1px solid #23262b; padding:10px 12px; font-size:11px; font-weight:600; color:#abadaf; }
+    td { border-bottom:1px solid #1c1e21; padding:10px 12px; }
+    pre.log { max-height:18rem; overflow:auto; border-radius:12px; border:1px solid #23262b; background:#0b0d0f; padding:12px; font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; line-height:1.625; color:#e5e7eb; }
     ::-webkit-scrollbar { width:12px; height:12px; }
-    ::-webkit-scrollbar-thumb { background:rgba(100,116,139,.7); border-radius:9999px; }
-    ::-webkit-scrollbar-thumb:hover { background:rgba(100,116,139,.9); }
-    ::-webkit-scrollbar-track { background: rgba(30,42,68,.45); }
+    ::-webkit-scrollbar-thumb { background:rgba(120,128,136,.7); border-radius:9999px; }
+    ::-webkit-scrollbar-thumb:hover { background:rgba(140,148,156,.9); }
+    ::-webkit-scrollbar-track { background: #0b0d0f; }
 
     /* Native form controls on iOS/Safari ignore CSS background-color and render light boxes with near-invisible text — force dark theme. */
     select.input, input.input, textarea.input { -webkit-appearance:none; appearance:none; }
-    input.input, textarea.input{ color:#e6eaf2 !important; background-color:#0b1220 !important; border:1px solid #2a3a5d !important; }
-    select.input{ color:#e6eaf2 !important; background-color:#0b1220 !important; border:1px solid #2a3a5d !important; background-repeat:no-repeat; background-position:right .7rem center; background-size:1rem;
-      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); }
+    input.input, textarea.input{ color:#f7f7f8 !important; background-color:#0b0d0f !important; border:1px solid #2f3338 !important; }
+    select.input{ color:#f7f7f8 !important; background-color:#0b0d0f !important; border:1px solid #2f3338 !important; background-repeat:no-repeat; background-position:right .7rem center; background-size:1rem;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23abadaf' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); }
 
     /* Hide the horizontal-scrolling nav scrollbar — no clean Tailwind utility for this. */
     .tab-row { -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-right:.5rem; }
     /* Nav items must not compress on narrow screens — let the row scroll instead of clipping. */
     .tab-row > a { flex-shrink: 0; }
-    .tab-row::-webkit-scrollbar { displaynone; }
+    .tab-row::-webkit-scrollbar { display:none; }
 
     /* max-width rules — Tailwind has no max-* responsive variants, so these stay in CSS. */
     @media (max-width:767px){
       main{ padding-top:1rem; padding-bottom:2rem; }
-      nav .mx-auto{ flex-wrap:wrap; gap:0 .375rem; }
+      nav .mx-auto { flex-wrap:wrap; gap:0 .375rem; }
       /* shrink + tighten nav so all labels fit on phone without clipping */
       .tab-row { gap:.25rem; }
       .tab-row > a { padding-left:.45rem; padding-right:.45rem; font-size:.625rem; letter-spacing:-.01em; }
       /* avoid iOS auto-zoom on form controls when focused */
       .input, [id^="dw-"]{ font-size:16px; }
-      /* lift low-contrast text so it's readable at phone size (this <style> follows the Tailwind CDN) */
-      .text-slate-500{ color:#94a3b8 !important; }   /* slate-400 brightness */
-      .text-slate-400{ color:#cbd5e1 !important; }   /* slate-300 brightness */
-      ::placeholder{ color:#94a3b8 !important; }
     }
   </style>
 </head>
 <body class="min-h-screen">
-  <nav class="sticky top-0 z-40 border-b border-ink-700/70 glass">
+  <nav class="sticky top-0 z-40 border-b border-line bg-card">
     <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
       <a href="/" class="flex items-center gap-2.5">
-        <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-accent to-accent-faint shadow-lg shadow-accent/30">
-          <span class="text-base">▲</span>
+        <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-brand">
+          <span class="text-base text-black">▲</span>
         </span>
-        <span class="text-xs md:text-[15px] font-semibold tracking-tight text-white">Model<span class="text-slate-400">Deploy</span></span>
+        <span class="text-xs md:text-[15px] font-semibold tracking-tight text-ink">Model<span class="text-muted">Deploy</span></span>
       </a>
       <div class="tab-row flex min-w-0 flex-1 items-center gap-1 overflow-x-auto snap-x snap-proximity text-sm">
         <a href="/" class="tab {{ 'tab-on' if active=='index' }}">Browse</a>

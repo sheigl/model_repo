@@ -33,9 +33,10 @@ from .categorize import categorize_repo
 from .config import (CONFIG_PATH, Config, PathMapping, Source, TargetMachine, load_config)
 from .jobs import JobStatus, queue
 from .scanner import scan_all
-from .sync import run_rsync, test_connection
+from .sync import local_disk_usage, remote_disk_usage, run_rsync, test_connection
 from . import hf_download as hf
-from .registry import build_deploy_plan, ensure_cached, get_provider
+from .registry import (build_deploy_plan, cache_status_for_repo,
+                       ensure_cached, get_provider)
 
 app = FastAPI(title="Model Deployment")
 
@@ -77,6 +78,45 @@ def _app_version() -> str:
 _conn_cache: dict[str, tuple[bool, str, float]] = {}
 _conn_lock = threading.Lock()
 
+# Disk usage snapshot: {"local": view|None, "targets": {name: {category: view}}}
+_disk_cache: dict = {}
+_disk_lock = threading.Lock()
+
+
+def _disk_view(u):
+    """Normalize a raw disk-usage dict for the UI (or None)."""
+    if not u:
+        return None
+    pct = u.get("percent")
+    return {"total": u["total_bytes"], "used": u["used_bytes"], "free": u["free_bytes"],
+            "pct": pct}
+
+
+def _refresh_disk():
+    cfg = _cfg()
+    cache_dir = getattr(getattr(cfg, "registry", None), "repo_root", None) or "."
+    local = _disk_view(local_disk_usage(cache_dir))
+    targets_out = {}
+    for name, t in cfg.targets.items():
+        cats = {}
+        for cat, pm in (t.categories or {}).items():
+            u = remote_disk_usage(t.host, t.user, pm.remote_root, key=t.ssh_key)
+            if u:
+                cats[cat] = _disk_view(u)
+        targets_out[name] = cats
+    with _disk_lock:
+        global _disk_cache
+        _disk_cache = {"local": local, "targets": targets_out}
+
+
+def _disk_loop():
+    while True:
+        time.sleep(30)
+        try:
+            _refresh_disk()
+        except Exception:
+            pass
+
 
 def _cfg() -> Config:
     return load_config(initialize=True)
@@ -93,7 +133,7 @@ def _runner(job, emit):
         result = run_rsync(
             host=m["host"], user=m["user"], local_path=m["local_path"],
             remote_root=m["remote_root"], key=m.get("key"), ntfs=m.get("ntfs", False),
-            on_output=lambda line: emit(line),
+            on_output=lambda line: emit(line), cancel_hook=lambda: queue.is_cancelled(job.id),
         )
         job.result = {"returncode": result.returncode, "summary": result.summary,
                       "duration_s": round(result.duration_s, 1)}
@@ -106,7 +146,8 @@ def _runner(job, emit):
         summary = hf.run_hf_download(
             model=m["model"], quants=m["quants"], output_dir=m["output_dir"],
             token_env=m.get("token_env", "HF_TOKEN"), dry_run=m.get("dry_run", False),
-            no_mmproj=m.get("no_mmproj", False), on_step=step,
+            no_mmproj=m.get("no_mmproj", False), on_step=step, check_staleness=True,
+            should_cancel=lambda: queue.is_cancelled(job.id),
         )
         job.result = summary
     elif job.kind == "deploy":
@@ -136,13 +177,17 @@ def _runner(job, emit):
         emit(f"deploying [{', '.join(p['local_name'] for p in plan['plan'])}] "
              f"-> {m['target']} ({cat}) to {remote_root}")
 
-        # Phase 1: ensure files are in the server cache (download what's missing).
+        # Phase 1: ensure files are in the server cache (refresh stale ones, download the rest).
+        should_cancel = lambda: queue.is_cancelled(job.id)  # noqa: E731
         local_paths = ensure_cached(provider, plan, repo_root,
-                                    dry_run=m.get("dry_run", False), on_step=step)
+                                    dry_run=m.get("dry_run", False), on_step=step,
+                                    check_staleness=True, should_cancel=should_cancel)
 
         # Phase 2: push each cached file to the target, mirroring HF structure.
         synced = failed = skipped = 0
         for lp in local_paths:
+            if should_cancel():
+                break
             rel = os.path.relpath(lp, repo_root)
             if m.get("dry_run"):
                 emit(f"[dry-run] would sync {rel} -> {remote_root}")
@@ -155,7 +200,7 @@ def _runner(job, emit):
             res = run_rsync(host=m["host"], user=m["user"], local_path=lp,
                             remote_root=remote_root, key=m.get("key"),
                             ntfs=m.get("ntfs", False), remote_subpath=rel,
-                            on_output=lambda line: emit(line))
+                            on_output=lambda line: emit(line), cancel_hook=should_cancel)
             if res.ok:
                 synced += 1
                 emit(f"[synced] {rel}")
@@ -172,6 +217,7 @@ def _runner(job, emit):
 def _start_workers():
     queue.start_worker(_runner)
     threading.Thread(target=_conn_loop, daemon=True).start()
+    threading.Thread(target=_disk_loop, daemon=True).start()
 
 
 def _conn_loop():
@@ -224,13 +270,15 @@ def targets(request: Request):
     cfg = _cfg()
     with _conn_lock:
         cache = dict(_conn_cache)
+    with _disk_lock:
+        disk_cache = dict(_disk_cache)
     targets_json = {
         name: {"categories": {cat: pm.remote_root for cat, pm in (t.categories or {}).items()}}
         for name, t in cfg.targets.items()
     }
     resp = TEMPLATES.TemplateResponse(request, "targets.html", {"active": "targets", "cfg": cfg,
-                                      "conn_cache": cache, "targets_json": targets_json,
-                                      "app_version": _app_version()})
+                                       "conn_cache": cache, "disk_cache": disk_cache, "targets_json": targets_json,
+                                       "app_version": _app_version()})
     resp.headers["Cache-Control"] = "no-store"
     return resp
 
@@ -240,15 +288,18 @@ def downloads(request: Request):
     cfg = _cfg()
     recent = [j for j in queue.all() if j.kind in ("hf_download", "deploy")]
     all_cats = sorted({cat for t in cfg.targets.values() for cat in (t.categories or {})})
+    with _disk_lock:
+        disk_cache = dict(_disk_cache)
     deploy_targets = {
         name: {"categories": {cat: pm.remote_root for cat, pm in (t.categories or {}).items()}}
         for name, t in cfg.targets.items()
     }
     resp = TEMPLATES.TemplateResponse(request, "downloads.html", {"active": "downloads", "cfg": cfg,
-                                      "recent": recent[-10:], "targets": cfg.targets,
-                                      "deploy_targets": deploy_targets,
-                                      "all_categories": all_cats,
-                                      "app_version": _app_version()})
+                                       "recent": recent[-10:], "targets": cfg.targets,
+                                       "deploy_targets": deploy_targets,
+                                       "all_categories": all_cats,
+                                       "disk_cache": disk_cache,
+                                       "app_version": _app_version()})
     resp.headers["Cache-Control"] = "no-store"
     return resp
 
@@ -387,7 +438,21 @@ def api_hub_files(repo: str):
         sizes = provider.list_files_with_sizes(resolved) or {}
     except NotImplementedError:
         pass
-    return {"repo": resolved, "files": files, "sizes": sizes}
+    except Exception:
+        # Sizes are best-effort; a failed lookup shouldn't fail the whole listing.
+        sizes = {}
+    cache_status = cache_status_for_repo(provider, resolved, cfg.registry.repo_root)
+    return {"repo": resolved, "files": files, "sizes": sizes, "cacheStatus": cache_status}
+
+
+@app.get("/api/cache/status")
+def api_cache_status(repo: str):
+    """Per-file cache status for a repo: which GGUFs are cached and whether an
+    update is available (local size differs from the hub's)."""
+    cfg = _cfg()
+    provider = get_provider(cfg.registry.provider, cfg.registry.token_env)
+    resolved = provider.resolve(repo)
+    return {"repo": resolved, "status": cache_status_for_repo(provider, resolved, cfg.registry.repo_root)}
 
 
 @app.post("/api/hf/download")
@@ -452,11 +517,40 @@ def api_job(job_id: str):
     return JSONResponse(job.to_dict(), headers={"Cache-Control": "no-store"})
 
 
+@app.post("/api/job/{job_id}/cancel")
+def api_job_cancel(job_id: str):
+    ok = queue.cancel_job(job_id)
+    if not ok:
+        return JSONResponse(
+            {"ok": False, "error": "not found or already terminal"}, status_code=409)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/job/{job_id}/restart")
+def api_job_restart(job_id: str):
+    job = queue.get(job_id)
+    if not job:
+        return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
+    if job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
+        return JSONResponse(
+            {"ok": False, "error": "cannot restart a job that is queued or running"},
+            status_code=409)
+    new = queue.create(job.kind, f"Restarted: {job.description}")
+    new.meta = dict(job.meta) if job.meta else {}
+    return JSONResponse({"ok": True, "job_id": new.id})
+
+
 @app.get("/api/targets/status")
 def api_targets_status():
     with _conn_lock:
         out = {k: {"ok": ok, "detail": d, "checked_at": t} for k, (ok, d, t) in _conn_cache.items()}
     return out
+
+
+@app.get("/api/disk")
+def api_disk():
+    with _disk_lock:
+        return JSONResponse(dict(_disk_cache), headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/stream/{job_id}")
@@ -477,7 +571,7 @@ def api_stream(job_id: str):
                 last = len(log)
             d = job.to_dict()
             yield f"data: {_json.dumps({'status': d['status'], 'progress': d['progress']})}\n\n"
-            if job.status in (JobStatus.DONE, JobStatus.FAILED):
+            if job.status in (JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELLED):
                 import json as _json
                 yield f"data: {_json.dumps({'final': job.to_dict()})}\n\n"
                 return

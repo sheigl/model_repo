@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -120,6 +121,7 @@ def run_rsync(
     on_output=None,
     extra_args: list[str] | None = None,
     remote_subpath: str | None = None,
+    cancel_hook=None,
 ) -> SyncResult:
     """Run an rsync-over-ssh command and return a SyncResult.
 
@@ -152,11 +154,21 @@ def run_rsync(
     )
     output_lines = []
     for line in iter(proc.stdout.readline, ""):
+        if cancel_hook is not None and cancel_hook():
+            proc.terminate()
+            break
         output_lines.append(line.rstrip("\n"))
         if on_output:
             on_output(line.rstrip("\n"))
-    proc.stdout.close()
-    proc.wait()
+    try:
+        proc.stdout.close()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
 
     stdout = "\n".join(output_lines)
     result = SyncResult(
@@ -210,3 +222,56 @@ def test_connection(host: str, user: str, key: str | None = None) -> tuple[bool,
         return False, "timeout"
     except FileNotFoundError as e:
         return False, str(e)
+
+
+def remote_disk_usage(host: str, user: str, path: str, key: str | None = None,
+                      timeout: int = 20) -> dict | None:
+    """Fetch disk usage of a remote path via ``df -Pk`` over SSH.
+
+    Returns ``{total_bytes, used_bytes, free_bytes, percent}`` or ``None`` when the
+    command fails (no connectivity, path absent, host unreachable). Best-effort; a
+    target whose deployment path doesn't exist yet simply reports nothing.
+    """
+    ssh_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15"]
+    if key:
+        ssh_cmd += ["-i", key]
+    ssh_cmd += [f"{user}@{host}", f"df -Pk {shlex.quote(path)}"]
+    try:
+        proc = subprocess.run(ssh_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True, timeout=timeout)
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    # POSIX df: header line + one data line per filesystem.
+    if len(lines) < 2:
+        return None
+    parts = lines[1].split()
+    # Filesystem  1024-blocks Used Available Capacity Mounted-on ...
+    try:
+        total = int(parts[1]) * 1024
+        used = int(parts[2]) * 1024
+        free = int(parts[3]) * 1024
+    except (IndexError, ValueError):
+        return None
+    percent = None
+    cap = parts[4] if len(parts) > 4 else ""
+    if cap.endswith("%"):
+        try:
+            percent = int(cap[:-1])
+        except ValueError:
+            pass
+    return {"total_bytes": total, "used_bytes": used, "free_bytes": free, "percent": percent}
+
+
+def local_disk_usage(path: str) -> dict | None:
+    """shutil.disk_usage for a path; ``None`` on failure."""
+    try:
+        u = shutil.disk_usage(str(path))
+    except (OSError, AttributeError):
+        return None
+    if not u:
+        return None
+    pct = round(u.used / u.total * 100) if u.total else None
+    return {"total_bytes": u.total, "used_bytes": u.used, "free_bytes": u.free, "percent": pct}
