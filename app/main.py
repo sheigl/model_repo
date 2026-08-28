@@ -209,12 +209,14 @@ def index(request: Request):
         for name, t in cfg.targets.items()
     }
     sources_json = [{"name": s.name, "root": s.root} for s in cfg.sources]
-    return TEMPLATES.TemplateResponse(request, "index.html", {"active": "index", "models": models,
-                                     "sources": sources_json, "categories": categories,
-                                     "quants": quants, "cfg": cfg,
-                                     "deploy_targets": deploy_targets,
-                                     "all_categories": sorted(set(categories)),
-                                     "app_version": _app_version()})
+    resp = TEMPLATES.TemplateResponse(request, "index.html", {"active": "index", "models": models,
+                                      "sources": sources_json, "categories": categories,
+                                      "quants": quants, "cfg": cfg,
+                                      "deploy_targets": deploy_targets,
+                                      "all_categories": sorted(set(categories)),
+                                      "app_version": _app_version()})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/targets", response_class=HTMLResponse)
@@ -226,9 +228,11 @@ def targets(request: Request):
         name: {"categories": {cat: pm.remote_root for cat, pm in (t.categories or {}).items()}}
         for name, t in cfg.targets.items()
     }
-    return TEMPLATES.TemplateResponse(request, "targets.html", {"active": "targets", "cfg": cfg,
-                                     "conn_cache": cache, "targets_json": targets_json,
-                                     "app_version": _app_version()})
+    resp = TEMPLATES.TemplateResponse(request, "targets.html", {"active": "targets", "cfg": cfg,
+                                      "conn_cache": cache, "targets_json": targets_json,
+                                      "app_version": _app_version()})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/downloads", response_class=HTMLResponse)
@@ -240,17 +244,21 @@ def downloads(request: Request):
         name: {"categories": {cat: pm.remote_root for cat, pm in (t.categories or {}).items()}}
         for name, t in cfg.targets.items()
     }
-    return TEMPLATES.TemplateResponse(request, "downloads.html", {"active": "downloads", "cfg": cfg,
-                                     "recent": recent[-10:], "targets": cfg.targets,
-                                     "deploy_targets": deploy_targets,
-                                     "all_categories": all_cats,
-                                     "app_version": _app_version()})
+    resp = TEMPLATES.TemplateResponse(request, "downloads.html", {"active": "downloads", "cfg": cfg,
+                                      "recent": recent[-10:], "targets": cfg.targets,
+                                      "deploy_targets": deploy_targets,
+                                      "all_categories": all_cats,
+                                      "app_version": _app_version()})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/jobs", response_class=HTMLResponse)
 def jobs(request: Request):
-    return TEMPLATES.TemplateResponse(request, "jobs.html", {"active": "jobs", "jobs":
-                                     queue.all(), "app_version": _app_version()})
+    resp = TEMPLATES.TemplateResponse(request, "jobs.html", {"active": "jobs", "jobs":
+                                      queue.all(), "app_version": _app_version()})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -265,9 +273,11 @@ def settings(request: Request):
         "bind_host": cfg.bind_host,
     }
     yaml_text = yaml.safe_dump(data, default_flow_style=False, sort_keys=False)
-    return TEMPLATES.TemplateResponse(request, "settings.html", {"active": "settings", "cfg": cfg,
-                                     "yaml_text": yaml_text, "config_path": str(CONFIG_PATH),
-                                     "app_version": _app_version()})
+    resp = TEMPLATES.TemplateResponse(request, "settings.html", {"active": "settings", "cfg": cfg,
+                                      "yaml_text": yaml_text, "config_path": str(CONFIG_PATH),
+                                      "app_version": _app_version()})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 # ---------------------------------------------------------------------------
