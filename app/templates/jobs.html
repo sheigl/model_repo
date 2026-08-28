@@ -23,12 +23,18 @@ function statusBadge(status){ return `<span class="badge ${STATUS_CLASS[status]|
 
 
 async function refresh(){
-  const r = await fetch('/api/jobs');
-  const data = await r.json();
   const list = document.getElementById('job-list');
-  if(!data.jobs.length){ list.innerHTML = '<p class="text-slate-400">No jobs yet.</p>'; return; }
-  list.innerHTML = data.jobs.map(jobRow).join('');
-  document.querySelectorAll('[data-stream]').forEach(el => startStream(el.dataset.stream, el));
+  try {
+    const r = await fetch('/api/jobs');
+    const data = await r.json();
+    if(!data.jobs.length){ list.innerHTML = '<p class="text-slate-400">No jobs yet.</p>'; return; }
+    list.innerHTML = data.jobs.map(jobRow).join('');
+    document.querySelectorAll('[data-stream]').forEach(el => startStream(el.dataset.stream, el));
+  } catch(e){
+    // A failed/stale fetch used to silently leave the "No jobs yet." placeholder,
+    // making a running job look like it never existed. Surface it + allow retry.
+    list.innerHTML = '<p class="text-rose cursor-pointer" onclick="refresh()">Couldn’t load jobs — <span class="underline">tap to retry</span></p>';
+  }
 }
 
 function jobRow(j){

@@ -426,7 +426,12 @@ def api_deploy(model: str = Form(...), quants: list[str] = Form(...),
 
 @app.get("/api/jobs")
 def api_jobs():
-    return {"jobs": [j.to_dict() for j in queue.all()]}
+    # no-store: a tunnel/proxy/browser could otherwise cache an empty {jobs:[]} from
+    # before the job existed and keep serving it, so /jobs looks blank while downloads run.
+    return JSONResponse(
+        {"jobs": [j.to_dict() for j in queue.all()]},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/job/{job_id}")
@@ -434,7 +439,7 @@ def api_job(job_id: str):
     job = queue.get(job_id)
     if not job:
         return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
-    return job.to_dict()
+    return JSONResponse(job.to_dict(), headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/targets/status")
@@ -467,7 +472,11 @@ def api_stream(job_id: str):
                 yield f"data: {_json.dumps({'final': job.to_dict()})}\n\n"
                 return
             time.sleep(0.4)
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 # ---------------------------------------------------------------------------
