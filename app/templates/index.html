@@ -103,8 +103,9 @@
             <select id="dw-target" class="input" onchange="drawerTargetChanged()">
   <option value="">— cache only (download) —</option>
 {% for name in deploy_targets %}
-  <option value="{{ name }}">{{ name }}</option>
+            <option value="{{ name }}">{{ name }}</option>
 {% endfor %}
+        </select>
 
           </div>
           <div id="dw-category-wrap">
