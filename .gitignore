@@ -8,5 +8,30 @@
 __pycache__/
 *.py[cod]
 
+# Python build / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test / coverage / lint caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# OS / editor noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# SQLite metadata store (created at runtime)
+*.db
+*.db-wal
+*.db-shm
+
 # Playwright browser binaries
 .pwb/

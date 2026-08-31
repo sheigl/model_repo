@@ -22,19 +22,125 @@ const STATUS_CLASS = {
 };
 function statusBadge(status){ return `<span class="badge ${STATUS_CLASS[status]||'bg-slate-600'}">${status}</span>`; }
 
+// One live SSE connection per job keeps progress updating in real time and log
+// lines appending. Because refresh() rebuilds the DOM every 3s, the log content
+// is kept in a persistent map (logs[id]) and re-rendered into whichever <pre>
+// currently exists — so nothing is lost and panels stay open.
+const streams = {};          // jobId -> EventSource
+const logs = {};             // jobId -> string[] of log lines / final block
+const finalized = new Set(); // jobIds whose terminal result was already delivered
+const openLogs = new Set();  // jobIds whose log panel is currently expanded
+const pinned = new Map();    // jobId -> stick-to-bottom (absent = true)
+function isPinned(id){ return pinned.get(id) !== false; }
+function atBottom(pre){ return pre.scrollHeight - pre.scrollTop - pre.clientHeight < 32; }
+let jobsById = {};           // last /api/jobs snapshot keyed by id
+
+function jobRowEl(id){ return document.querySelector(`[data-job="${id}"]`); }
+function logPre(id){ return document.querySelector(`[data-stream="${id}"]`); }
+function logWrap(id){ const pre = logPre(id); return pre ? pre.closest('.log-wrap') : null; }
+// Show the top-fade only once the panel actually scrolls above its first line.
+function updateFade(id){
+  const wrap = logWrap(id), pre = logPre(id);
+  if(!wrap || !pre) return;
+  const overflow = pre.scrollHeight > pre.clientHeight + 1;
+  wrap.classList.toggle('is-faded', !!(overflow && pre.scrollTop > 0));
+}
+function pbarEl(id){ return document.querySelector(`[data-job="${id}"] .pbar`); }
+function logBtnEl(id){
+  const row = jobRowEl(id);
+  return row ? row.querySelector('button[onclick^="toggleLog"]') : null;
+}
+function logBtnLabel(id, open){ const b = logBtnEl(id); if(b) b.textContent = open ? 'Hide log' : 'Show log'; }
+
+// Render the full stored log into the panel (used after every DOM rebuild/opening).
+function renderLog(id){
+  const pre = logPre(id);
+  if(!pre) return;
+  const lines = logs[id] || [];
+  pre.textContent = lines.length ? lines.join('\n') + '\n' : '';
+  pre.dataset.filled = '1';
+  // Only stick to the bottom when the user is already there — otherwise a new
+  // line would yank the view down while they're reading earlier output.
+  if(isPinned(id)) pre.scrollTop = pre.scrollHeight;
+  pre.onscroll = () => { updateFade(id); pinned.set(id, atBottom(pre)); };
+  updateFade(id);
+}
 
 async function refresh(){
   const list = document.getElementById('job-list');
   try {
     const r = await fetch('/api/jobs');
     const data = await r.json();
-    if(!data.jobs.length){ list.innerHTML = '<p class="text-slate-400">No jobs yet.</p>'; return; }
-    list.innerHTML = data.jobs.map(jobRow).join('');
-    document.querySelectorAll('[data-stream]').forEach(el => startStream(el.dataset.stream, el));
+    jobsById = (data.jobs || []).reduce((m, j) => (m[j.id] = j, m), {});
+    // The rebuild below replaces every row, so save scroll positions of open
+    // panels to restore them afterwards (pinned panels snap to the bottom).
+    const prevTop = {};
+    openLogs.forEach(id => { const pre = logPre(id); if(pre) prevTop[id] = pre.scrollTop; });
+    if(!data.jobs.length){
+      list.innerHTML = '<p class="text-slate-400">No jobs yet.</p>';
+    } else {
+      list.innerHTML = data.jobs.map(jobRow).join('');
+      // refresh() rebuilds the DOM, so re-expand + re-render any open panels.
+      openLogs.forEach(id => {
+        const wrap = logWrap(id);
+        if(wrap){
+          wrap.classList.remove('hidden');
+          renderLog(id);
+          if(!isPinned(id)){ const pre = logPre(id); if(pre) pre.scrollTop = prevTop[id] || 0; }
+        }
+        logBtnLabel(id, true);
+      });
+      // Start live streams for active jobs (real-time progress + log append).
+      // Terminal jobs are filled once from the snapshot instead.
+      data.jobs.forEach(j => {
+        if(j.status === 'queued' || j.status === 'running'){
+          ensureStream(j);
+        } else {
+          finalized.add(j.id);
+          if(openLogs.has(j.id)) fillFromSnapshot(j);
+        }
+      });
+    }
   } catch(e){
-    // A failed/stale fetch used to silently leave the "No jobs yet." placeholder,
-    // making a running job look like it never existed. Surface it + allow retry.
     list.innerHTML = '<p class="text-err cursor-pointer" onclick="refresh()">Couldn’t load jobs — <span class="underline">tap to retry</span></p>';
+  }
+}
+
+function ensureStream(j){
+  if(streams[j.id]) return;
+  // The server replays the full log on a fresh connection, so reset our copy
+  // (also guards against duplicates after a dropped/reconnected stream).
+  logs[j.id] = [];
+  let es;
+  try { es = new EventSource(`/api/stream/${j.id}`); } catch(e){ return; }
+  streams[j.id] = es;
+  es.onmessage = (ev) => {
+    let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+    if(msg.line){
+      (logs[j.id] = logs[j.id] || []).push(msg.line);
+      if(openLogs.has(j.id)) renderLog(j.id);
+    }
+    // Backend streams {status, progress} every ~0.4s — mirror it onto the bar.
+    if(typeof msg.progress === 'number'){
+      const bar = pbarEl(j.id);
+      if(bar) bar.style.width = msg.progress + '%';
+    }
+    if(msg.final){
+      (logs[j.id] = logs[j.id] || []).push('\n=== DONE ===\n' + JSON.stringify(msg.final.result, null, 2));
+      if(openLogs.has(j.id)) renderLog(j.id);
+      es.close(); delete streams[j.id]; finalized.add(j.id);
+    }
+  };
+  es.onerror = () => { es.close(); delete streams[j.id]; };
+}
+
+// Terminal jobs have no live stream; fill once from the snapshot.
+function fillFromSnapshot(j){
+  if(!logs[j.id] || !logs[j.id].length){
+    logs[j.id] = [];
+    if(Array.isArray(j.log)) logs[j.id].push(...j.log);
+    if(j.result && Object.keys(j.result).length) logs[j.id].push('\n=== DONE ===\n' + JSON.stringify(j.result, null, 2));
+    if(openLogs.has(j.id)) renderLog(j.id);
   }
 }
 
@@ -85,32 +191,34 @@ function jobRow(j){
       </div>
     </div>
     <div class="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
-      <div class="h-full bg-brand transition-all" style="width:${j.progress}%"></div>
+      <div class="pbar h-full bg-brand transition-all" style="width:${j.progress}%"></div>
     </div>
-    <pre class="log hidden mt-3" data-stream="${j.id}"></pre>
+    <div class="log-wrap hidden"><pre class="log" data-stream="${j.id}"></pre></div>
   </div>`;
 }
-function toggleLog(jobId, btn){
-  const pre = document.querySelector(`[data-stream="${jobId}"]`);
-  if(pre.classList.contains('hidden')){
-    pre.classList.remove('hidden');
-    btn.textContent = 'Hide log';
-    startStream(jobId, pre);
-  } else {
-    pre.classList.add('hidden');
-    btn.textContent = 'Show log';
-  }
-}
 
-function startStream(jobId, el){
-  if(el.dataset.started) return;
-  el.dataset.started = '1';
-  const es = new EventSource(`/api/stream/${jobId}`);
-  es.onmessage = (ev) => {
-    let msg; try { msg = JSON.parse(ev.data); } catch { return; }
-    if(msg.line){ el.textContent += msg.line + '\n'; el.scrollTop = el.scrollHeight; }
-    if(msg.final){ el.textContent += '\n=== DONE ===\n' + JSON.stringify(msg.final.result, null, 2); es.close(); }
-  };
+function toggleLog(jobId, btn){
+  const wrap = logWrap(jobId);
+  if(!wrap) return;
+  if(wrap.classList.contains('hidden')){
+    wrap.classList.remove('hidden');
+    openLogs.add(jobId);
+    pinned.set(jobId, true);   // a freshly opened log starts at the latest line
+    logBtnLabel(jobId, true);
+    const job = jobsById[jobId];
+    if(!streams[jobId] && job){
+      if(job.status === 'queued' || job.status === 'running'){
+        ensureStream(job);   // fresh stream replays the full log
+      } else if(finalized.has(jobId)){
+        fillFromSnapshot(job);
+      }
+    }
+    renderLog(jobId);
+  } else {
+    wrap.classList.add('hidden');
+    openLogs.delete(jobId);
+    logBtnLabel(jobId, false);
+  }
 }
 
 refresh();

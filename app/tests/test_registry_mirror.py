@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from app.registry import (HuggingFaceProvider, build_deploy_plan, cache_status_for_repo,
-                          check_cache_status, ensure_cached, find_aux)
+                          check_cache_status, ensure_cached, find_aux, find_mmproj)
 
 
 class _FakeProvider(HuggingFaceProvider):
@@ -80,6 +80,23 @@ class FindAuxTests(unittest.TestCase):
         self.assertIsNone(find_aux(["model-Q4_K_M.gguf"]))
 
 
+class FindMmprojTests(unittest.TestCase):
+    def test_matches_full_path(self):
+        self.assertEqual(
+            find_mmproj(["sub/mmproj-q4_k_m.gguf", "mmproj-f16.gguf"],
+                        "sub/mmproj-q4_k_m.gguf"),
+            "sub/mmproj-q4_k_m.gguf")
+
+    def test_matches_basename_only(self):
+        self.assertEqual(
+            find_mmproj(["sub/mmproj-q4_k_m.gguf", "mmproj-f16.gguf"],
+                        "mmproj-q4_k_m.gguf"),
+            "sub/mmproj-q4_k_m.gguf")
+
+    def test_ignores_non_mmproj_and_returns_none_when_missing(self):
+        self.assertIsNone(find_mmproj(["model-Q4_K_M.gguf"], "mmproj-q4_k_m.gguf"))
+
+
 class PlanAndCacheTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -92,8 +109,10 @@ class PlanAndCacheTests(unittest.TestCase):
         plan = build_deploy_plan(provider, "o/m", quants=["q4_k_m"])
         model_items = [p for p in plan["plan"] if p["kind"] == "model"]
         self.assertEqual(len(model_items), 1)
-        # local_name mirrors the source path (not a flattened basename).
-        self.assertEqual(model_items[0]["remote_file"], model_items[0]["local_name"])
+        # local_name mirrors the source repo layout, prefixed by the repo id so the
+        # cache keeps each repo in its own folder.
+        self.assertEqual(model_items[0]["local_name"],
+                         os.path.join("o/m", model_items[0]["remote_file"]))
 
     def test_cache_mirrors_structure_and_is_idempotent(self):
         provider = _FakeProvider({"o/m": ["sub/model-Q4_K_M.gguf", "mmproj-f16.gguf"]})
@@ -102,7 +121,7 @@ class PlanAndCacheTests(unittest.TestCase):
         steps = []
         paths = ensure_cached(provider, plan, self.tmp, on_step=steps.append)
 
-        model_path = os.path.join(self.tmp, "sub/model-Q4_K_M.gguf")
+        model_path = os.path.join(self.tmp, "o/m/sub/model-Q4_K_M.gguf")
         self.assertTrue(os.path.exists(model_path))
         self.assertIn(model_path, paths)
         # No flat basename was left behind in the cache root.
@@ -119,11 +138,47 @@ class PlanAndCacheTests(unittest.TestCase):
         mm = [p for p in plan["plan"] if p["kind"] == "mmproj"]
         self.assertEqual(len(mm), 1)
         friendly = mm[0]["local_name"]
+        # The friendly name keeps the model name so two models' projectors
+        # never collide in the shared cache.
+        self.assertTrue(friendly.endswith("-m.gguf"))
 
         ensure_cached(provider, plan, self.tmp, on_step=lambda s: None)
         self.assertTrue(os.path.exists(os.path.join(self.tmp, friendly)))
         self.assertFalse(
             os.path.exists(os.path.join(self.tmp, "nested/mmproj-q4_k_m.gguf")))
+
+    def test_mmproj_exact_selection_beats_preferred(self):
+        provider = _FakeProvider({
+            "o/m": ["mmproj-f16.gguf", "nested/mmproj-q4_k_m.gguf"],
+        })
+        plan = build_deploy_plan(provider, "o/m", quants=[], no_mmproj=False,
+                                 mmproj="nested/mmproj-q4_k_m.gguf")
+        mm = [p for p in plan["plan"] if p["kind"] == "mmproj"]
+        # The clicked projector (q4_k_m) is used even though F16 is auto-preferred.
+        self.assertEqual(mm[0]["remote_file"], "nested/mmproj-q4_k_m.gguf")
+        self.assertTrue(mm[0]["local_name"].endswith("-m.gguf"))
+
+    def test_mmproj_name_keeps_model_name(self):
+        provider = _FakeProvider({"o/m": ["mmproj-f16.gguf"]})
+        plan = build_deploy_plan(provider, "o/m", quants=["q4_k_m"], no_mmproj=False)
+        mm = [p for p in plan["plan"] if p["kind"] == "mmproj"]
+        self.assertEqual(len(mm), 1)
+        self.assertEqual(mm[0]["local_name"], os.path.join("o/m", "mmproj-F16-m.gguf"))
+
+    def test_adopts_legacy_flat_file_into_repo_folder(self):
+        provider = _FakeProvider({"o/m": ["sub/model-Q4_K_M.gguf"]})
+        plan = build_deploy_plan(provider, "o/m", quants=["q4_k_m"])
+        # Simulate a file cached under the OLD flat layout (no repo prefix).
+        _write_local(self.tmp, "sub/model-Q4_K_M.gguf", b"existing-bytes")
+
+        steps = []
+        paths = ensure_cached(provider, plan, self.tmp, on_step=steps.append)
+
+        self.assertEqual(paths, [os.path.join(self.tmp, "o/m/sub/model-Q4_K_M.gguf")])
+        self.assertTrue(os.path.exists(os.path.join(self.tmp, "o/m/sub/model-Q4_K_M.gguf")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "sub/model-Q4_K_M.gguf")))
+        # Moved into place, never downloaded.
+        self.assertEqual([s["action"] for s in steps], ["adopt"])
 
 
 def _write_local(tmp, rel_path, body):
@@ -151,11 +206,11 @@ class StalenessTests(unittest.TestCase):
         provider = _FakeProvider({"o/m": ["model-Q4_K_M.gguf"]},
                                  sizes_by_repo={"o/m": {"model-Q4_K_M.gguf": 17}})
         plan = build_deploy_plan(provider, "o/m", quants=["q4_k_m"])
-        _write_local(self.tmp, "model-Q4_K_M.gguf", b"0123456789abcdefg")  # 17 bytes
+        _write_local(self.tmp, "o/m/model-Q4_K_M.gguf", b"0123456789abcdefg")  # 17 bytes
 
         steps = []
         paths = ensure_cached(provider, plan, self.tmp, on_step=steps.append)
-        self.assertEqual(paths, [os.path.join(self.tmp, "model-Q4_K_M.gguf")])
+        self.assertEqual(paths, [os.path.join(self.tmp, "o/m/model-Q4_K_M.gguf")])
         self.assertTrue(all(s["action"] == "cached" for s in steps))
 
     def test_stale_file_is_overwritten(self):
@@ -163,20 +218,20 @@ class StalenessTests(unittest.TestCase):
         provider = _FakeProvider({"o/m": ["model-Q4_K_M.gguf"]},
                                  sizes_by_repo={"o/m": {"model-Q4_K_M.gguf": 30}})
         plan = build_deploy_plan(provider, "o/m", quants=["q4_k_m"])
-        _write_local(self.tmp,"model-Q4_K_M.gguf", b"small")  # 5 bytes
+        _write_local(self.tmp,"o/m/model-Q4_K_M.gguf", b"small")  # 5 bytes
 
         steps = []
         paths = ensure_cached(provider, plan, self.tmp, on_step=steps.append)
         refreshed = [s for s in steps if s["action"] == "download"]
         self.assertEqual(len(refreshed), 1)
-        with open(os.path.join(self.tmp, "model-Q4_K_M.gguf"), "rb") as fh:
+        with open(os.path.join(self.tmp, "o/m/model-Q4_K_M.gguf"), "rb") as fh:
             self.assertEqual(len(fh.read()), 30)  # now matches the remote size
 
     def test_no_staleness_check_when_disabled(self):
         provider = _FakeProvider({"o/m": ["model-Q4_K_M.gguf"]},
                                  sizes_by_repo={"o/m": {"model-Q4_K_M.gguf": 30}})
         plan = build_deploy_plan(provider, "o/m", quants=["q4_k_m"])
-        _write_local(self.tmp,"model-Q4_K_M.gguf", b"small")
+        _write_local(self.tmp,"o/m/model-Q4_K_M.gguf", b"small")
 
         steps = []
         ensure_cached(provider, plan, self.tmp, on_step=steps.append, check_staleness=False)
@@ -186,7 +241,7 @@ class StalenessTests(unittest.TestCase):
         provider = _FakeProvider({"o/m": ["model-Q4_K_M.gguf"]},
                                  sizes_by_repo={"o/m": {"model-Q4_K_M.gguf": 17}})
         plan = build_deploy_plan(provider, "o/m", quants=["q4_k_m"])
-        _write_local(self.tmp,"model-Q4_K_M.gguf", b"0123456789abcdefg")
+        _write_local(self.tmp,"o/m/model-Q4_K_M.gguf", b"0123456789abcdefg")
 
         steps = []
         ensure_cached(provider, plan, self.tmp, on_step=steps.append, force_refresh=True)
@@ -196,7 +251,7 @@ class StalenessTests(unittest.TestCase):
         # No sizes reported -> can't tell staleness -> keep the local file.
         provider = _FakeProvider({"o/m": ["model-Q4_K_M.gguf"]})
         plan = build_deploy_plan(provider, "o/m", quants=["q4_k_m"])
-        _write_local(self.tmp,"model-Q4_K_M.gguf", b"whatever-is-here")
+        _write_local(self.tmp,"o/m/model-Q4_K_M.gguf", b"whatever-is-here")
 
         steps = []
         ensure_cached(provider, plan, self.tmp, on_step=steps.append)
@@ -213,7 +268,7 @@ class CacheStatusTests(unittest.TestCase):
     def test_repo_level_status_marks_up_to_date(self):
         provider = _FakeProvider({"o/m": ["model-Q4_K_M.gguf"]},
                                  sizes_by_repo={"o/m": {"model-Q4_K_M.gguf": 17}})
-        _write_local(self.tmp, "model-Q4_K_M.gguf", b"0123456789abcdefg")
+        _write_local(self.tmp, "o/m/model-Q4_K_M.gguf", b"0123456789abcdefg")
 
         status = cache_status_for_repo(provider, "o/m", self.tmp)
         self.assertTrue(status["model-Q4_K_M.gguf"]["up_to_date"])
@@ -222,7 +277,7 @@ class CacheStatusTests(unittest.TestCase):
         provider = _FakeProvider({"o/m": ["model-Q4_K_M.gguf"]},
                                  sizes_by_repo={"o/m": {"model-Q4_K_M.gguf": 30}})
         plan = build_deploy_plan(provider, "o/m", quants=["q4_k_m"])
-        _write_local(self.tmp,"model-Q4_K_M.gguf", b"stale")  # size != remote
+        _write_local(self.tmp,"o/m/model-Q4_K_M.gguf", b"stale")  # size != remote
 
         status = check_cache_status(provider, plan, self.tmp)[0]
         self.assertTrue(status["cached"])

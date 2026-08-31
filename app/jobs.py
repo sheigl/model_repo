@@ -48,6 +48,14 @@ class Job:
     def cancel(self) -> None:
         self._cancel.set()
 
+    def set_progress(self, pct: float) -> None:
+        """Clamp + record progress (0-100) so the API/SSE stream expose it live."""
+        if pct < 0:
+            pct = 0.0
+        elif pct > 100:
+            pct = 100.0
+        self.progress = pct
+
     def is_cancelled(self) -> bool:
         return self._cancel.is_set()
 

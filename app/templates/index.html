@@ -22,9 +22,19 @@
              onkeydown="if(event.key==='Enter')hubSearch(0)">
     </div>
     <div class="flex flex-wrap items-center gap-3">
-      <label class="flex items-center gap-2 text-sm text-slate-600">
-        <input type="checkbox" id="hub-gguf" class="accent-brand rounded" checked onchange="hubSearch(0)"> GGUF only
-      </label>
+      <select id="hub-pipeline" class="input max-w-xs" onchange="hubSearch(0)">
+        <option value="">All tasks</option>
+        <option value="text-generation">Language models (LLM)</option>
+        <option value="text-to-image">Text-to-image</option>
+        <option value="image-to-text">Image-to-text</option>
+        <option value="automatic-speech-recognition">Speech-to-text</option>
+        <option value="text-to-speech">Text-to-speech</option>
+        <option value="text-to-audio">Text-to-audio</option>
+        <option value="text-to-video">Text-to-video</option>
+        <option value="feature-extraction">Embeddings</option>
+        <option value="translation">Translation</option>
+        <option value="text-classification">Text classification</option>
+      </select>
       <button class="btn-primary md:w-auto" onclick="hubSearch(0)">Search</button>
     </div>
   </div>
@@ -60,6 +70,16 @@
         <option value="">all categories</option>
         <option value="3d">3d</option><option value="audio-gen">audio-gen</option><option value="detection-seg">detection-seg</option><option value="embedding">embedding</option><option value="image-gen">image-gen</option><option value="image-lora">image-lora</option><option value="image-text-encoder">image-text-encoder</option><option value="llm">llm</option><option value="openvino">openvino</option><option value="unknown">unknown</option><option value="upscaler">upscaler</option><option value="vae">vae</option><option value="video-gen">video-gen</option><option value="vision-projector">vision-projector</option>
       </select>
+      <label class="flex items-center gap-1.5 text-xs text-slate-600">
+        Sort
+        <select id="cache-sort" class="input !py-1 max-w-[200px] text-xs" onchange="sortCache()">
+          <option value="name">Name (A–Z)</option>
+          <option value="size_asc">Size: smallest first</option>
+          <option value="size_desc">Size: largest first</option>
+          <option value="files_asc">Files: fewest first</option>
+          <option value="category">Category (A–Z)</option>
+        </select>
+      </label>
       <span id="cache-count" class="text-xs text-slate-500"></span>
     </div>
   </div>
@@ -90,8 +110,13 @@
       <!-- FILES PANEL -->
       <div id="panel-files">
         <div class="mb-3 flex items-center justify-between">
-          <span class="label !mb-0">Files / quantizations</span>
-          <span id="dw-filecount" class="text-[11px] text-slate-400"></span>
+          <span class="label !mb-0">Files</span>
+          <div class="flex items-center gap-3">
+            <label id="dw-checkall-wrap" for="dw-checkall" class="hidden flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer select-none">
+              <input type="checkbox" id="dw-checkall" class="accent-brand rounded"> Select all
+            </label>
+            <span id="dw-filecount" class="text-[11px] text-slate-400"></span>
+          </div>
         </div>
         <div class="max-h-72 overflow-auto rounded-lg border border-line bg-surface-alt">
           <div id="dw-files" class="text-sm"></div>
@@ -116,7 +141,6 @@
             </select>
           </div>
           <div class="flex flex-wrap items-center gap-4 text-sm text-slate-600">
-            <label class="flex items-center gap-2"><input type="checkbox" id="dw-mmproj" class="accent-brand rounded"> include mmproj</label>
             <label class="flex items-center gap-2"><input type="checkbox" id="dw-dry" class="accent-brand rounded"> dry run</label>
           </div>
           <button class="btn-primary w-full" id="dw-deploy" onclick="drawerDeploy()">Deploy</button>
@@ -141,17 +165,18 @@ const TARGETS = {
 {% endfor %}};
 const ALL_CATS = ["3d", "audio-gen", "detection-seg", "embedding", "image-gen", "image-lora", "image-text-encoder", "llm", "openvino", "unknown", "upscaler", "vae", "video-gen", "vision-projector"];
 const SOURCES = [{% for s in sources %}{"name": "{{ s.name }}", "root": "{{ s.root }}"}{% if not loop.last %}, {% endif %}{% endfor %}];
-let hubCursor = null, hubMore = false, hubResults = [], currentHubModel = null, cacheTimer = null;
+let hubCursor = null, hubMore = false, hubResults = [], currentHubModel = null, cacheModels = [], cacheTimer = null, cacheSrcMap = {};
 
 async function hubSearch(loadMore){
   const q = document.getElementById('hub-q').value.trim();
-  if(!q && !loadMore){ document.getElementById('hub-empty').classList.remove('hidden'); return; }
-  const gguf = document.getElementById('hub-gguf').checked;
+  const pipeline = document.getElementById('hub-pipeline').value;
+  if(!q && !pipeline && !loadMore){ document.getElementById('hub-empty').classList.remove('hidden'); return; }
   const grid = document.getElementById('hub-grid');
   const chrome = document.getElementById('hub-chrome');
   if(!loadMore){ grid.innerHTML='<p class="text-slate-500">searching…</p>'; hubCursor=null; }
   try {
-    const params = new URLSearchParams({q, gguf: gguf?'1':''});
+    const params = new URLSearchParams({q});
+    if(pipeline) params.set('pipeline', pipeline);
     const r = await fetch('/api/hub/search?'+params);
     const d = await r.json();
     hubMore = d.has_more;
@@ -233,8 +258,9 @@ async function openHubRepo(repo){
     const sizes = d.sizes||{};
     document.getElementById('dw-filecount').textContent = files.length+' files';
     const cstat = d.cacheStatus || {};
-    document.getElementById('dw-files').innerHTML = renderHubTree(files, sizes, cstat) || '<div class="px-3 py-4 text-center text-xs text-slate-500">no GGUF files</div>';
-  } catch(e){ document.getElementById('dw-files').innerHTML=`<tr><td colspan="3" class="px-3 py-4 text-center text-xs text-err">${e}</td></tr>`; }
+    document.getElementById('dw-files').innerHTML = renderHubTree(files, sizes, cstat) || '<div class="px-3 py-4 text-center text-xs text-slate-500">no files</div>';
+    refreshCheckAll();
+  } catch(e){ document.getElementById('dw-files').innerHTML=`<tr><td colspan="3" class="px-3 py-4 text-center text-xs text-err">${e}</td></tr>`; refreshCheckAll(); }
 }
 function renderStatsHub(m){
   const el = document.getElementById('dw-stats');
@@ -353,6 +379,7 @@ function refreshFolderBoxes(){
     let checked=0; leaves.forEach(l=>{ if(l.checked) checked++; });
     box.indeterminate=checked>0 && checked<leaves.length;
   });
+  refreshCheckAll();
 }
 function renderHubTree(files, sizes, cstat){
   const root=makeTree(files, sizes);
@@ -372,10 +399,27 @@ function renderHubTree(files, sizes, cstat){
   }
   return out;
 }
+function toggleCheckAll(e){
+  const on=e.target.checked;
+  document.querySelectorAll('.dw-quant, .dw-mmproj').forEach(l=>l.checked=on);
+  refreshFolderBoxes();
+  refreshCheckAll();
+}
+function refreshCheckAll(){
+  const wrap=document.getElementById('dw-checkall-wrap');
+  const box=document.getElementById('dw-checkall');
+  if(!wrap || !box) return;
+  const leaves=[...document.querySelectorAll('.dw-quant, .dw-mmproj')];
+  const checked=leaves.filter(l=>l.checked).length;
+  wrap.classList.toggle('hidden', leaves.length===0);
+  box.checked = leaves.length>0 && checked===leaves.length;
+  box.indeterminate = checked>0 && checked<leaves.length;
+}
 document.addEventListener('change', function(e){
   const t=e.target;
-  if(t.classList.contains('dw-folder')) toggleFolderAll(e);
-  else if(t.classList.contains('dw-quant') || t.classList.contains('dw-mmproj')) refreshFolderBoxes();
+  if(t.id==='dw-checkall') toggleCheckAll(e);
+  else if(t.classList.contains('dw-folder')) toggleFolderAll(e);
+  else if(t.classList.contains('dw-quant') || t.classList.contains('dw-mmproj')){ refreshFolderBoxes(); refreshCheckAll(); }
 });
 function formatSize(bytes){
   if(!bytes && bytes!==0) return '<span class="text-slate-600">—</span>';
@@ -400,12 +444,17 @@ async function drawerDeploy(){
   if(currentRepo.kind === 'cache'){
     const src = SOURCES.find(s=>s.name===currentRepo.source) || SOURCES[0];
     if(!target){ document.getElementById('dw-result').innerHTML='<p class="text-err">Pick a target.</p>'; return; }
+    // Gather the repo-relative paths of whatever was checked (map back from the
+    // display-stripped path we rendered into the tree). At least one must be on.
+    let sel = [...document.querySelectorAll('.dw-quant:checked, .dw-mmproj:checked')].map(c => cacheSrcMap[c.dataset.file] || c.dataset.file);
+    if(!sel.length){ document.getElementById('dw-result').innerHTML='<p class="text-err">Select at least one file.</p>'; return; }
     const fd = new FormData();
     fd.append('source_root', src ? src.root : '');
     fd.append('local_path', currentRepo.path);
     fd.append('target', target);
     fd.append('category', category);
     fd.append('remote_root', (TARGETS[target] && TARGETS[target].categories[category]) || '');
+    sel.forEach(f => fd.append('files', f));
     const r = await fetch('/api/sync',{method:'POST',body:fd});
     const d = await r.json();
     if(d.ok){ document.getElementById('dw-result').innerHTML=`<p class="text-ok">✓ queued — <a class="underline" href="/jobs#${d.job_id}">view job</a></p>`; }
@@ -415,12 +464,14 @@ async function drawerDeploy(){
 
   // Hub mode: pick quant(s), deploy = download-if-missing then rsync.
   let quants = [...document.querySelectorAll('.dw-quant:checked')].map(c=>c.value);
-  const mm = document.querySelector('.dw-mmproj:checked') ? 'on':'';
-  if(!quants.length){ document.getElementById('dw-result').innerHTML='<p class="text-err">Select at least one quant.</p>'; return; }
+  const mmBox = document.querySelector('.dw-mmproj:checked');
+  const mmFile = mmBox ? mmBox.dataset.file : '';
+  if(!quants.length && !mmFile){ document.getElementById('dw-result').innerHTML='<p class="text-err">Select at least one quant or an mmproj.</p>'; return; }
   const fd = new FormData();
   fd.append('model', currentRepo);
   quants.forEach(q=>fd.append('quants',q));
-  fd.append('no_mmproj', mm?'':'on');
+  fd.append('no_mmproj', mmFile ? '' : 'on');
+  if(mmFile) fd.append('mmproj', mmFile);
   fd.append('dry_run', document.getElementById('dw-dry').checked?'on':'');
   if(target){ fd.append('target', target); fd.append('category', category); }
   const r = await fetch('/api/deploy',{method:'POST',body:fd});
@@ -439,22 +490,46 @@ async function loadCache(){
   if(q) params.set('query',q);
   const r = await fetch('/api/cache?'+params);
   const d = await r.json();
+  cacheModels = d.models || [];
   document.getElementById('cache-count').textContent = d.count+' model(s)';
-  grid.innerHTML = d.models.map(cacheCard).join('');
-  document.getElementById('cache-empty').classList.toggle('hidden', d.count>0);
+  sortCache();
+}
+function sortCache(){
+  const key = document.getElementById('cache-sort').value;
+  const cmp = (a,b)=> a.toLowerCase().localeCompare(b.toLowerCase());
+  cacheModels.sort((a,b)=>{
+    if(key==='size_asc') return (a.size_gb??0)-(b.size_gb??0);
+    if(key==='size_desc') return (b.size_gb??0)-(a.size_gb??0);
+    if(key==='files_asc') return (a.file_count??0)-(b.file_count??0);
+    if(key==='category'||key==='name') return (a.category||'').localeCompare(b.category||'',{sensitivity:'base'}) || cmp(a.name,b.name);
+    return (a.category||'').localeCompare(b.category||'',{sensitivity:'base'}) || cmp(a.name,b.name);
+  });
+  const grid = document.getElementById('cache-grid');
+  grid.innerHTML = cacheModels.length ? cacheModels.map(cacheCard).join('') : '';
+  document.getElementById('cache-empty').classList.toggle('hidden', cacheModels.length>0);
 }
 function cacheCard(m){
-  const data = JSON.stringify({kind:'cache', path:m.path, source:m.source, category:m.category, name:m.name})
+  const data = JSON.stringify({kind:'cache', node_kind:m.kind, path:m.path, source:m.source, category:m.category, name:m.name, quant:m.quant, size_gb:m.size_gb, file_count:m.file_count, key:m.key, display_name:m.display_name, upstream_repo:m.upstream_repo, has_upstream:m.has_upstream, hf_tags:m.hf_tags, notes:m.notes, update_status:m.update_status, update_checked_at:m.update_checked_at, hidden:m.hidden})
                    .replace(/"/g,'&quot;');
   const cat = m.category || 'model';
+  const upRepo = m.has_upstream
+    ? `<a class="mt-0.5 block max-w-full truncate text-xs text-brand hover:underline" href="https://huggingface.co/${m.upstream_repo}" target="_blank" rel="noopener" title="${m.upstream_repo}" onclick="event.stopPropagation()">${m.upstream_repo}</a>`
+    : (m.source?`<p class="mt-0.5 truncate text-xs text-slate-500">${m.source}</p>`:'');
+  const upBadge = m.has_upstream
+    ? (m.update_status==='update-available'
+        ? `<span class="badge shrink-0 !text-[10px] bg-warn/10 text-warn">update available</span>`
+        : m.update_status==='up-to-date'
+          ? `<span class="badge shrink-0 !text-[10px] bg-ok/10 text-ok">up to date</span>`
+          : `<span class="badge shrink-0 !text-[10px] bg-slate-100 text-slate-600">tracked</span>`)
+    : `<span class="badge shrink-0 bg-slate-100 text-slate-600">${cat}</span>`;
   return `<div class="card !p-4 cursor-pointer transition hover:border-line hover:bg-surface-alt" onclick='openCacheRepo(${data})'>
     <div class="mb-2 flex items-start gap-2.5">
       <span class="mt-px flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-800 text-xs font-semibold text-slate-300">${cat.charAt(0).toUpperCase()}</span>
       <div class="min-w-0 flex-1">
         <p class="truncate text-sm font-semibold leading-snug text-ink" title="${m.name}">${m.name}</p>
-        ${m.source?`<p class="mt-0.5 truncate text-xs text-slate-500">${m.source}</p>`:''}
+        ${upRepo}
       </div>
-      <span class="badge shrink-0 bg-slate-100 text-slate-600">${cat}</span>
+      ${upBadge}
     </div>
     <div class="mt-2 flex items-center gap-2 text-[11px] font-medium text-slate-600">
       <span>${m.quant||'n/a'}</span>
@@ -466,8 +541,11 @@ function cacheCard(m){
     </div>
   </div>`;
 }
+function esc(s){
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 function openCacheRepo(m){
-  currentHubModel = m; currentRepo = m;
+  currentHubModel = m;
   document.getElementById('dw-sub').textContent = 'your cache';
   document.getElementById('dw-title').textContent = m.name;
   document.getElementById('dw-avatar').textContent = (m.category||'model').charAt(0).toUpperCase();
@@ -475,10 +553,52 @@ function openCacheRepo(m){
   renderStatsCache(m);
   buildMetaCache(m);
   switchDrawerTab('files');
-  document.getElementById('dw-filecount').textContent='cached';
-  document.getElementById('dw-files').innerHTML=`<p class="text-xs text-slate-500 font-mono break-all">${m.path}</p>`;
+  currentRepo = { ...m, kind: 'cache' };
   if(document.getElementById('dw-category')) document.getElementById('dw-category').value = m.category || '';
   document.getElementById('dw-result').textContent='';
+
+  // A grouped ("tree") card is several files under one name — list them with checkboxes
+  // so the user can pick which ones to sync. A single-file card just shows its path.
+  if(m.files && m.files.length > 1){
+    loadCacheFiles(m);
+  } else {
+    document.getElementById('dw-filecount').textContent = (m.file_count||1)+' cached';
+    document.getElementById('dw-files').innerHTML=`<p class="text-xs text-slate-500 font-mono break-all">${m.path}</p><button class="btn-ghost mt-3 w-full !py-2 text-sm" onclick="switchDrawerTab('meta')">✎ Edit metadata / upstream repo</button>`;
+  }
+}
+function stripCommon(f, prefix){
+  const p = (prefix||'').replace(/\/+$/,'');
+  if(!p) return f;
+  if(f === p) return f.split('/').pop();
+  if(f.startsWith(p + '/')) return f.slice(p.length + 1);
+  return f;
+}
+function cacheFileFooter(m){
+  return `<div class="mt-3 border-t border-line pt-3"><button class="btn-ghost w-full !py-2 text-sm" onclick="switchDrawerTab('meta')">✎ Edit metadata / upstream repo</button><p class="mt-2 truncate text-[11px] text-slate-500 font-mono" title="${esc(m.path)}">${m.path}</p></div>`;
+}
+async function loadCacheFiles(m){
+  const filesEl = document.getElementById('dw-files');
+  filesEl.innerHTML = '<p class="px-3 py-4 text-center text-xs text-slate-500">loading files…</p>';
+  try {
+    const r = await fetch('/api/cache/files?key='+encodeURIComponent(m.key));
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error || 'could not list files');
+    cacheSrcMap = {};
+    const files = (d.files||[]).map(f => { const s = stripCommon(f, m.path); cacheSrcMap[s] = f; return s; });
+    document.getElementById('dw-filecount').textContent = files.length+' files';
+    filesEl.innerHTML = `<div class="max-h-60 overflow-auto rounded-lg border border-line bg-surface-alt"><div id="dw-files-tree" class="text-sm"></div></div>` + cacheFileFooter(m);
+    document.getElementById('dw-files-tree').innerHTML = renderHubTree(files, d.sizes||{}, {}) || '<div class="px-3 py-4 text-center text-xs text-slate-500">no files</div>';
+    refreshCheckAll();
+    // Expand top-level folders so the group's contents are visible at a glance.
+    document.querySelectorAll('#dw-files-tree .tree-body:not([data-for*="/"])').forEach(b=>b.classList.remove('hidden'));
+    document.querySelectorAll('#dw-files-tree [data-caret]').forEach(c=>{
+      const b=document.querySelector('.tree-body[data-for="'+cssEq(c.dataset.caret)+'"]');
+      if(b && !b.classList.contains('hidden')) c.textContent='▾';
+    });
+  } catch(e){
+    document.getElementById('dw-filecount').textContent = (m.file_count||1)+' cached';
+    filesEl.innerHTML = `<p class="px-3 py-4 text-center text-xs text-err">${e}</p>` + cacheFileFooter(m);
+  }
 }
 function renderStatsCache(m){
   document.getElementById('dw-stats').innerHTML = `<span>${m.category||'model'}</span><span>${m.size_gb} GB</span><span class="ml-auto text-slate-500">${m.source||''}</span>`;
@@ -492,7 +612,161 @@ function buildMetaCache(m){
   rows.push(row('Files', ''+(m.file_count||0)));
   if(m.size_gb!=null) rows.push(row('Size', m.size_gb+' GB'));
   rows.push(row('Path', m.path));
-  document.getElementById('dw-meta-list').innerHTML = rows.join('') || '<li class="text-slate-500">no metadata</li>';
+  const tagsHtml = (m.hf_tags||[]).filter(t=>!['gguf'].includes(t)).slice(0,8)
+    .map(t=>`<span class="chip !px-2 !text-[10px] !whitespace-nowrap">${t}</span>`).join('');
+  const metaHeader = (m.upstream_repo || tagsHtml) ? `<div class="mt-4 rounded-lg border border-line bg-surface-alt p-3"><p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Upstream</p>${m.upstream_repo?`<a class="block max-w-full truncate text-sm font-mono text-brand hover:underline" href="https://huggingface.co/${m.upstream_repo}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${m.upstream_repo}</a>`:''}${tagsHtml?`<div class="mt-2 flex flex-wrap gap-1">${tagsHtml}</div>`:''}</div>` : '';
+  const grpFolder = m.node_kind==='tree' ? (m.path||'') : (m.path||'').split('/').slice(0,-1).join('/');
+  const groupHtml = grpFolder ? `<div class="mt-4 rounded-lg border border-line bg-surface-alt p-3">
+    <p class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Group folder as one model</p>
+    <p class="mb-3 text-xs text-slate-500">Writes a grouping marker into <span class="font-mono">${esc(grpFolder)}</span> so every file beneath it (subfolders included) becomes a single card — same as a fresh download. Enter the upstream repo to also enable update checks.</p>
+    <div class="space-y-3">
+      <div>
+        <label class="label">Upstream repo (optional)</label>
+        <input id="grp-repo" class="input text-sm font-mono" value="${esc(grpFolder)}" placeholder="org/repo">
+      </div>
+      <div>
+        <label class="label">Display name (optional)</label>
+        <input id="grp-name" class="input text-sm" value="${esc(m.name||'')}">
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <button class="btn-primary" onclick="groupFolder()">Group folder</button>
+        <span id="grp-result" class="text-sm"></span>
+      </div>
+    </div>
+  </div>` : '';
+  document.getElementById('dw-meta-list').innerHTML =
+    renderCacheEdit(m) + metaHeader + (rows.join('') ? `<div class="mt-4 rounded-lg border border-line bg-surface-alt p-3"><p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Source facts</p><ul class="space-y-2.5 text-xs">${rows.join('')}</ul></div>` : '') +
+    groupHtml +
+    `<div class="mt-4 rounded-lg border border-[#5a3a3d] bg-[#4a1f22]/40 p-3">
+       <p class="mb-1 text-sm font-semibold text-[#ff9b9b]">Delete from cache</p>
+       <p class="mb-3 text-xs text-slate-500">Permanently remove this model's files (${m.size_gb} GB) from the local cache. This can't be undone — re-download or re-sync to get it back.</p>
+       <button class="btn-danger" onclick="deleteFromCache()">Delete from cache</button>
+       <span id="del-result" class="ml-2 text-xs"></span>
+     </div>`;
+}
+function renderCacheEdit(m){
+  const catOpts = ['', ...ALL_CATS].map(c=>{
+    const v = c||'';
+    return `<option value="${esc(v)}" ${v===m.category?'selected':''}>${esc(v||'auto (inferred)')}</option>`;
+  }).join('');
+  const st = m.update_status;
+  const stBadge = st
+    ? (st==='update-available'
+        ? `<span class="badge bg-warn/10 text-warn">update available</span>`
+        : st==='up-to-date' ? `<span class="badge bg-ok/10 text-ok">up to date</span>`
+        : `<span class="badge">${esc(st)}</span>`)
+    : '';
+  return `<div class="rounded-lg border border-line bg-surface-alt p-3">
+    <p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Edit card</p>
+    <div class="space-y-3">
+      <div>
+        <label class="label">Display name</label>
+        <input id="cme-name" class="input text-sm" value="${esc(m.display_name||m.name)}" placeholder="${esc(m.name)}">
+      </div>
+      <div>
+        <label class="label">Category</label>
+        <select id="cme-category" class="input text-sm">${catOpts}</select>
+      </div>
+      <div>
+        <label class="label">Quantization</label>
+        <input id="cme-quant" class="input text-sm" value="${esc(m.quant||'')}" placeholder="auto">
+      </div>
+      <div>
+        <label class="label">Upstream source repo</label>
+        <input id="cme-repo" class="input text-sm font-mono" value="${esc(m.upstream_repo||'')}" placeholder="org/repo (enables update checks)">
+      </div>
+      <div>
+        <label class="label">Notes</label>
+        <textarea id="cme-notes" class="input text-sm" rows="2">${esc(m.notes||'')}</textarea>
+      </div>
+      <label class="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" id="cme-hidden" class="accent-brand rounded" ${m.hidden?'checked':''}> hide from catalog</label>
+      <div class="flex flex-wrap items-center gap-2">
+        <button class="btn-primary" onclick="saveCacheMeta()">Save</button>
+        <button class="btn-ghost" onclick="checkCacheUpdate()">Check for updates</button>
+        <span id="cme-result" class="text-sm"></span>
+      </div>
+      <div class="flex items-center gap-2 text-xs text-slate-500">
+        ${stBadge ? stBadge + ' ' : ''}
+        ${st && m.update_checked_at ? '· checked '+relDate(m.update_checked_at) : ''}
+      </div>
+    </div>
+  </div>`;
+}
+async function saveCacheMeta(){
+  if(!currentRepo || !currentRepo.key){ document.getElementById('cme-result').innerHTML='<span class="text-err">no model key</span>'; return; }
+  const el = document.getElementById('cme-result');
+  const fd = new FormData();
+  fd.append('key', currentRepo.key);
+  fd.append('display_name', document.getElementById('cme-name').value);
+  fd.append('category', document.getElementById('cme-category').value);
+  fd.append('quant', document.getElementById('cme-quant').value);
+  fd.append('upstream_repo', document.getElementById('cme-repo').value.trim());
+  fd.append('notes', document.getElementById('cme-notes').value);
+  fd.append('hidden', document.getElementById('cme-hidden').checked ? 'on' : '');
+  el.innerHTML='<span class="text-slate-600">saving…</span>';
+  try {
+    const r = await fetch('/api/model/update',{method:'POST',body:fd});
+    const d = await r.json();
+    if(d.ok){ el.innerHTML='<span class="text-ok">saved ✓</span>'; await loadCache(); }
+    else { el.innerHTML=`<span class="text-err">${esc(d.error||'failed')}</span>`; }
+  } catch(e){ el.innerHTML=`<span class="text-err">${esc(e)}</span>`; }
+}
+async function groupFolder(){
+  if(!currentRepo) return;
+  const el = document.getElementById('grp-result');
+  const m = currentRepo;
+  const folder = m.node_kind==='tree' ? (m.path||'') : (m.path||'').split('/').slice(0,-1).join('/');
+  if(!folder){ el.innerHTML='<span class="text-err">file is at the source root — move it into a folder first</span>'; return; }
+  const fd = new FormData();
+  fd.append('folder', folder);
+  fd.append('repo', document.getElementById('grp-repo').value.trim());
+  fd.append('name', document.getElementById('grp-name').value.trim());
+  el.innerHTML='<span class="text-slate-600">grouping…</span>';
+  try {
+    const r = await fetch('/api/cache/group',{method:'POST',body:fd});
+    const d = await r.json();
+    if(d.ok){ el.innerHTML='<span class="text-ok">grouped ✓</span>'; await loadCache(); }
+    else { el.innerHTML=`<span class="text-err">${esc(d.error||'failed')}</span>`; }
+  } catch(e){ el.innerHTML=`<span class="text-err">${esc(e)}</span>`; }
+}
+async function checkCacheUpdate(){
+  if(!currentRepo || !currentRepo.key){ document.getElementById('cme-result').innerHTML='<span class="text-err">no model key</span>'; return; }
+  const el = document.getElementById('cme-result');
+  const fd = new FormData();
+  fd.append('key', currentRepo.key);
+  el.innerHTML='<span class="text-slate-600">checking…</span>';
+  try {
+    const r = await fetch('/api/model/check-update',{method:'POST',body:fd});
+    const d = await r.json();
+    if(d.ok && !d.error){
+      const label = d.status==='update-available' ? '<span class="text-warn">update available</span>'
+        : d.status==='up-to-date' ? '<span class="text-ok">up to date</span>'
+        : d.status==='not-cached' ? '<span class="text-slate-500">not cached locally</span>'
+        : d.status==='unknown' ? '<span class="text-slate-500">could not verify (size unavailable)</span>'
+        : `<span class="text-slate-500">status: ${esc(d.status)}</span>`;
+      el.innerHTML = label;
+      await loadCache();
+    } else { el.innerHTML=`<span class="text-err">${esc(d.error||'failed')}</span>`; }
+  } catch(e){ el.innerHTML=`<span class="text-err">${esc(e)}</span>`; }
+}
+async function deleteFromCache(){
+  if(!currentRepo || !currentRepo.key) return;
+  const name = currentRepo.name, size = (currentRepo.size_gb||0)+' GB';
+  if(!confirm(`Delete "${name}" from your cache?\n\nThis permanently removes the files (${size}) and can't be undone.`)) return;
+  const el = document.getElementById('del-result');
+  el.innerHTML='<span class="text-slate-500">deleting…</span>';
+  const fd = new FormData();
+  fd.append('key', currentRepo.key);
+  try {
+    const r = await fetch('/api/cache/delete',{method:'POST',body:fd});
+    const d = await r.json();
+    if(d.ok){
+      const freed = d.freed_bytes!=null ? ' ('+formatSize(d.freed_bytes)+')' : '';
+      el.innerHTML=`<span class="text-ok">deleted${freed} ✓</span>`;
+      closeDrawer();
+      await loadCache();
+    } else { el.innerHTML=`<span class="text-err">${esc(d.error||'failed')}</span>`; }
+  } catch(e){ el.innerHTML=`<span class="text-err">${esc(e)}</span>`; }
 }
 function switchTab(which){
   const hub = which==='hub';

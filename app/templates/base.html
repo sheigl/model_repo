@@ -4,6 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}ModelDeploy{% endblock %}</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <meta name="theme-color" content="#0b0d0f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ModelDeploy">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -52,7 +58,12 @@
     table { width:100%; text-align:left; font-size:14px; }
     th { border-bottom:1px solid #23262b; padding:10px 12px; font-size:11px; font-weight:600; color:#abadaf; }
     td { border-bottom:1px solid #1c1e21; padding:10px 12px; }
-    pre.log { max-height:18rem; overflow:auto; border-radius:12px; border:1px solid #23262b; background:#0b0d0f; padding:12px; font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; line-height:1.625; color:#e5e7eb; }
+    /* Job log panel — seamless like an AI "thinking" block: sits on the card (no box), a subtle
+       left accent bar, muted text, and a top-fade that kicks in once the content overflows. */
+    .log-wrap { position:relative; margin-top:12px; }
+    .log-wrap pre.log { max-height:18rem; overflow:auto; margin:0; border:0; background:transparent; padding:4px 0 4px 14px; border-left:2px solid #2f3338; font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; line-height:1.625; color:#cfd3d6; }
+    .log-wrap::after { content:''; position:absolute; top:0; left:0; right:0; height:3rem; background:linear-gradient(to bottom,#16181b,rgba(22,24,27,0)); pointer-events:none; z-index:1; opacity:0; transition:opacity .2s; }
+    .log-wrap.is-faded::after { opacity:1; }
     ::-webkit-scrollbar { width:12px; height:12px; }
     ::-webkit-scrollbar-thumb { background:rgba(120,128,136,.7); border-radius:9999px; }
     ::-webkit-scrollbar-thumb:hover { background:rgba(140,148,156,.9); }
@@ -77,8 +88,13 @@
       /* shrink + tighten nav so all labels fit on phone without clipping */
       .tab-row { gap:.25rem; }
       .tab-row > a { padding-left:.45rem; padding-right:.45rem; font-size:.625rem; letter-spacing:-.01em; }
-      /* avoid iOS auto-zoom on form controls when focused */
-      .input, [id^="dw-"]{ font-size:16px; }
+      /* Avoid iOS Safari auto-zoom on focus: any control whose computed font-size
+         is under 16px triggers a zoom. Force ALL text controls up to 16px with
+         !important so this beats Tailwind's text-xs/text-sm utilities — the CDN
+         injects its stylesheet after our inline <style>, so source order alone
+         wouldn't win over them. */
+      input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="hidden"]),
+      select, textarea { font-size:16px !important; }
     }
   </style>
 </head>

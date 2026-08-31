@@ -22,12 +22,39 @@ MMPROJ_PREFERRED = ["F16", "BF16", "F32"]
 # Prefixes that never count as a quant match for the main model file.
 _SKIP_PREFIXES = ("mmproj", "mtp-", "imatrix")
 
+# Non-model files we hide from the deploy picker (metadata, docs, images).
+_METADATA_EXTS = (".md", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico")
+_METADATA_NAMES = {".gitattributes", "readme", "license", "cov", "notice", "code_of_conduct", "contribute"}
+
+
+def is_model_file(f: str) -> bool:
+    """True for files worth showing in the model-file picker.
+
+    We no longer restrict to GGUF — safetensors/onnx/bin weights must show — but we
+    drop obvious non-model artifacts (README, LICENSE, images, .gitattributes).
+    """
+    name = os.path.basename(f).lower()
+    if name in _METADATA_NAMES or name.startswith("readme") or name.startswith("license"):
+        return False
+    if name.endswith(_METADATA_EXTS):
+        return False
+    return True
+
 
 def find_matches(files: list[str], quants: list[str]) -> list[str]:
-    """Find GGUF filenames matching the requested quantization strings."""
+    """Find model files matching the requested selections.
+
+    Handles two cases:
+      * an exact repo-relative path the user picked in the drawer (any
+        extension — safetensors, onnx, bin, …), and
+      * a quantization string like ``q4_k_m`` matched against GGUF filenames.
+    """
     matches = []
     for quant in quants:
         ql = quant.lower()
+        if quant in files:
+            matches.append(quant)
+            continue
         found = None
         for f in files:
             fl = f.lower()
@@ -69,6 +96,24 @@ def find_aux(files: list[str], kind: str = "mmproj") -> str | None:
     return next(iter(hints.values()))
 
 
+def find_mmproj(files: list[str], name: str) -> str | None:
+    """Find the exact auxiliary GGUF (e.g. mmproj) a user clicked.
+
+    ``name`` is the remote path sent by the UI (``data-file``); we match on the
+    full path first, then on basename alone so a flat-vs-nested rename is still
+    honored. Returns None when nothing matches so callers fall back to
+    ``find_aux``.
+    """
+    for f in files:
+        if not f.lower().endswith(".gguf"):
+            continue
+        if not os.path.basename(f).lower().startswith("mmproj"):
+            continue
+        if f == name or os.path.basename(f) == os.path.basename(name):
+            return f
+    return None
+
+
 class RepoProvider:
     """Abstract model-source. Subclasses implement the four methods."""
 
@@ -99,7 +144,7 @@ class RepoProvider:
         raise NotImplementedError
 
     def search(self, query: str, *, limit: int = 12, offset: int = 0,
-               gguf_only: bool = False) -> dict:
+               gguf_only: bool = False, pipeline: str | None = None) -> dict:
         """Search the upstream hub. Returns {"results": [...], "has_more": bool}.
 
         This is an optional capability; providers that can't browse simply leave
@@ -127,13 +172,41 @@ class HuggingFaceProvider(RepoProvider):
             name = name[:-5]
         return name
 
+    def repo_meta(self, repo_id: str) -> dict:
+        """Lightweight upstream metadata for a repo (author, tags, pipeline_tag...).
+
+        Best-effort; on any failure returns ``{"repo_id": repo_id}`` so callers can
+        still record the repo id even when the richer fields are unavailable.
+        """
+        from huggingface_hub import HfApi
+
+        try:
+            info = HfApi(token=self.token).model_info(repo_id, token=self.token)
+        except Exception as e:
+            print(f"  !! could not fetch meta for {repo_id}: {e}")
+            return {"repo_id": repo_id}
+        tags = list(getattr(info, "tags", None) or [])
+        if isinstance(tags, str):
+            tags = [t.strip() for t in tags.split(",") if t.strip()]
+        return {
+            "repo_id": repo_id,
+            "author": getattr(info, "author", None),
+            "tags": tags,
+            "pipeline_tag": getattr(info, "pipeline_tag", None),
+            "downloads": int(getattr(info, "downloads", 0) or 0),
+            "likes": int(getattr(info, "likes", 0) or 0),
+            "last_modified": getattr(info, "lastModified", None),
+        }
+
     def list_files(self, repo_id: str) -> list[str]:
+        """List every file in the repo (any extension), so non-GGUF models
+        (safetensors, onnx, bin, …) are browsable and deployable too."""
         try:
             files = list_repo_files(repo_id, token=self.token)
         except Exception as e:
             print(f"  !! could not list {repo_id}: {e}")
             return []
-        return sorted(f for f in files if f.endswith(".gguf"))
+        return sorted(f for f in files if is_model_file(f))
 
     def list_files_with_sizes(self, repo_id: str) -> dict[str, int | None]:
         from huggingface_hub import HfApi
@@ -147,14 +220,14 @@ class HuggingFaceProvider(RepoProvider):
         out: dict[str, int | None] = {}
         for item in tree:
             fn = getattr(item, "filename", None) or getattr(item, "path", None)
-            if not fn or not fn.endswith(".gguf"):
+            if not fn:
                 continue
             size = getattr(item, "size", None)
             out[fn] = int(size) if size is not None else None
         return {f: out[f] for f in self.list_files(repo_id)}
 
     def search(self, query: str, *, limit: int = 12, cursor: str | None = None,
-               gguf_only: bool = False) -> dict:
+               gguf_only: bool = False, pipeline: str | None = None) -> dict:
         """Search the HF hub; returns repo cards for the UI.
 
         Pagination is best-effort: this library surfaces list_models as a flat
@@ -167,7 +240,8 @@ class HuggingFaceProvider(RepoProvider):
         try:
             items = list(api.list_models(
                 search=query, limit=limit + 1, filter="gguf" if gguf_only else None,
-                full=True, sort="downloads" if not query else None,
+                pipeline_tag=pipeline or None, full=True,
+                sort="downloads" if not query else None,
             ))
         except Exception as e:
             print(f"  !! hub search failed for {query!r}: {e}")
@@ -209,11 +283,16 @@ def get_provider(provider: str, token_env: str = "HF_TOKEN") -> RepoProvider:
 # ---------------------------------------------------------------------------
 
 def build_deploy_plan(provider: RepoProvider, model: str, quants: list[str],
-                      no_mmproj: bool = False) -> dict:
+                      no_mmproj: bool = False, mmproj: str | None = None) -> dict:
     """Compute the exact files a deploy/download should operate on.
 
     Pure (only lists the repo); does not touch the local cache. Returns:
       {"repo_id", "model_name", "plan": [{"remote_file","local_name","kind"}]}
+
+    ``mmproj`` is an optional remote file the user explicitly picked in the UI; it
+    takes precedence over the automatic ``find_aux`` pick so the exact projector
+    they clicked is the one downloaded. The local name always keeps the model name
+    prefix so two different models' projectors never collide in the shared cache.
     """
     repo_id = provider.resolve(model)
     model_name = provider.model_name(repo_id)
@@ -221,16 +300,23 @@ def build_deploy_plan(provider: RepoProvider, model: str, quants: list[str],
 
     plan: list[dict] = []
     if not no_mmproj:
-        mm = find_aux(files, "mmproj")
+        if mmproj:
+            # The user clicked a specific projector — use it, falling back to the
+            # auto-pick if that file is no longer present (e.g. re-released).
+            mm = find_mmproj(files, mmproj) or find_aux(files, "mmproj")
+        else:
+            mm = find_aux(files, "mmproj")
         if mm:
             prec = mm.rsplit(".", 1)[0].split("-", 1)[-1].upper()
-            plan.append({"remote_file": mm, "local_name": f"mmproj-{prec}-{model_name}.gguf",
+            plan.append({"remote_file": mm,
+                         "local_name": os.path.join(repo_id, f"mmproj-{prec}-{model_name}.gguf"),
                          "kind": "mmproj"})
     for fname in find_matches(files, quants):
         if fname:
-            # local_name is the HF-relative path so the cache and target mirror the
-            # source layout (subfolders preserved).
-            plan.append({"remote_file": fname, "local_name": fname,
+            # local_name mirrors the upstream repo so the cache and target both
+            # keep HF's structure under <repo_root>/<repo_id>/... (subfolders kept).
+            plan.append({"remote_file": fname,
+                         "local_name": os.path.join(repo_id, fname),
                          "kind": "model"})
 
     # De-duplicate (two quant strings may match the same file).
@@ -278,7 +364,7 @@ def _download_and_place(provider: RepoProvider, repo_id: str, remote_file: str,
 def ensure_cached(provider: RepoProvider, plan: dict, repo_root: str,
                   dry_run: bool = False, on_step=None,
                   check_staleness: bool = True, force_refresh: bool = False,
-                  should_cancel=None) -> list[str]:
+                  should_cancel=None, on_progress=None) -> list[str]:
     """Download any missing files from a build_deploy_plan() into repo_root.
 
     Files are stored mirroring the source layout: each item lands at
@@ -293,63 +379,106 @@ def ensure_cached(provider: RepoProvider, plan: dict, repo_root: str,
     ``force_refresh`` always overwrites regardless of size. When remote sizes are
     unavailable the local file is left untouched (best-effort).
 
+    ``on_progress`` receives a fractional 0.0-1.0 value after each plan item is
+    resolved (cached, downloaded, dry-run, or errored), letting the UI show live
+    progress. It must not raise.
+
     Returns the local paths that should be present afterward, so the caller can
     deploy (sync) them to a target.
     """
     local_paths: list[str] = []
     remote_sizes = _remote_file_sizes(provider, plan["repo_id"]) if (check_staleness or force_refresh) else {}
 
-    for item in plan["plan"]:
+    total = len(plan["plan"]) or 1
+
+    for idx, item in enumerate(plan["plan"]):
         if should_cancel and should_cancel():
             # Cancelled mid-transfer: stop before starting the next file.
             if on_step:
                 on_step({"action": "cancelled", "remote_file": item["remote_file"], "local": item["local_name"]})
             break
-        remote_file = item["remote_file"]
-        local_name = item["local_name"]
-        local_path = os.path.join(repo_root, local_name)
-        remote_size = remote_sizes.get(remote_file)
+        try:
+            remote_file = item["remote_file"]
+            local_name = item["local_name"]
+            local_path = os.path.join(repo_root, local_name)
+            remote_size = remote_sizes.get(remote_file)
 
-        if os.path.exists(local_path):
-            stale = False
-            if force_refresh:
-                stale = True
-            elif check_staleness and remote_size is not None:
-                try:
-                    stale = os.path.getsize(local_path) != remote_size
-                except OSError:
+            if os.path.exists(local_path):
+                stale = False
+                if force_refresh:
                     stale = True
-            if stale:
-                # Local copy differs from the hub (re-released / corrected file):
-                # refresh it so we never download or sync a stale version.
+                elif check_staleness and remote_size is not None:
+                    try:
+                        stale = os.path.getsize(local_path) != remote_size
+                    except OSError:
+                        stale = True
+                if stale:
+                    # Local copy differs from the hub (re-released / corrected file):
+                    # refresh it so we never download or sync a stale version.
+                    if dry_run:
+                        if on_step:
+                            on_step({"action": "dry-run", "remote_file": remote_file, "local": local_name})
+                        local_paths.append(local_path)
+                        continue
+                    try:
+                        _download_and_place(provider, plan["repo_id"], remote_file, local_path,
+                                            repo_root, local_name, on_step)
+                    except Exception as e:
+                        if on_step:
+                            on_step({"action": "download-error", "remote_file": remote_file, "error": str(e)})
+                    continue
+                if on_step:
+                    on_step({"action": "cached", "remote_file": remote_file, "local": local_name})
+                local_paths.append(local_path)
+                continue
+
+            # Adopt a pre-existing flat-cache file instead of re-downloading it.
+            # Before the repo-scoped layout, files lived at <repo_root>/<remote_file>
+            # (no repo prefix). If such a legacy file exists, move it into place so
+            # migration costs no bandwidth.
+            legacy_path = None
+            if local_name.startswith(plan["repo_id"] + "/"):
+                legacy = local_name[len(plan["repo_id"]) + 1:]
+                legacy_path = os.path.join(repo_root, legacy)
+            if legacy_path and legacy_path != local_path and os.path.exists(legacy_path):
                 if dry_run:
                     if on_step:
-                        on_step({"action": "dry-run", "remote_file": remote_file, "local": local_name})
+                        on_step({"action": "adopt", "remote_file": remote_file, "local": local_name,
+                                 "note": f"flat cache {legacy}"})
                     local_paths.append(local_path)
                     continue
                 try:
-                    _download_and_place(provider, plan["repo_id"], remote_file, local_path,
-                                        repo_root, local_name, on_step)
+                    parent = os.path.dirname(local_path)
+                    if parent:
+                        os.makedirs(parent, exist_ok=True)
+                    shutil.move(legacy_path, local_path)
+                    _prune_empty_dirs(repo_root, [legacy_path])
+                    if on_step:
+                        on_step({"action": "adopt", "remote_file": remote_file, "local": local_name,
+                                 "note": f"flat cache {legacy}"})
+                    local_paths.append(local_path)
                 except Exception as e:
                     if on_step:
-                        on_step({"action": "download-error", "remote_file": remote_file, "error": str(e)})
+                        on_step({"action": "adopt-error", "remote_file": remote_file, "error": str(e)})
                 continue
-            if on_step:
-                on_step({"action": "cached", "remote_file": remote_file, "local": local_name})
-            local_paths.append(local_path)
-            continue
 
-        if dry_run:
-            if on_step:
-                on_step({"action": "dry-run", "remote_file": remote_file, "local": local_name})
-            continue
-        try:
-            _download_and_place(provider, plan["repo_id"], remote_file, local_path,
-                                repo_root, local_name, on_step)
-            local_paths.append(local_path)
-        except Exception as e:
-            if on_step:
-                on_step({"action": "download-error", "remote_file": remote_file, "error": str(e)})
+            if dry_run:
+                if on_step:
+                    on_step({"action": "dry-run", "remote_file": remote_file, "local": local_name})
+                continue
+            try:
+                _download_and_place(provider, plan["repo_id"], remote_file, local_path,
+                                    repo_root, local_name, on_step)
+                local_paths.append(local_path)
+            except Exception as e:
+                if on_step:
+                    on_step({"action": "download-error", "remote_file": remote_file, "error": str(e)})
+        finally:
+            if on_progress:
+                try:
+                    on_progress((idx + 1) / total)
+                except Exception:
+                    pass
     return local_paths
 
 
@@ -395,6 +524,6 @@ def cache_status_for_repo(provider: RepoProvider, repo_id: str, repo_root: str) 
     remote_sizes = _remote_file_sizes(provider, repo_id)
     out: dict[str, dict] = {}
     for f in files:
-        local_path = os.path.join(repo_root, f)
+        local_path = os.path.join(repo_root, repo_id, f)
         out[f] = _file_status(os.path.exists(local_path), remote_sizes.get(f), local_path)
     return out

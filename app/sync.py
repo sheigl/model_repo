@@ -14,12 +14,17 @@ show live output.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+# Matches the "NN%" field in rsync --progress lines (per-file and the final
+# "Percentage transferred" summary). Used for best-effort live progress.
+_PROGRESS_RE = re.compile(r"\b(\d{1,3})\s*%\b")
 
 
 @dataclass
@@ -122,6 +127,7 @@ def run_rsync(
     extra_args: list[str] | None = None,
     remote_subpath: str | None = None,
     cancel_hook=None,
+    on_progress=None,
 ) -> SyncResult:
     """Run an rsync-over-ssh command and return a SyncResult.
 
@@ -153,6 +159,7 @@ def run_rsync(
         bufsize=1,
     )
     output_lines = []
+    seen_frac = 0.0
     for line in iter(proc.stdout.readline, ""):
         if cancel_hook is not None and cancel_hook():
             proc.terminate()
@@ -160,6 +167,16 @@ def run_rsync(
         output_lines.append(line.rstrip("\n"))
         if on_output:
             on_output(line.rstrip("\n"))
+        if on_progress:
+            m = _PROGRESS_RE.search(line)
+            if m:
+                try:
+                    frac = int(m.group(1)) / 100.0
+                except ValueError:
+                    frac = None
+                if frac is not None and frac > seen_frac:
+                    seen_frac = frac
+                    on_progress(frac)
     try:
         proc.stdout.close()
     except Exception:
@@ -228,8 +245,10 @@ def remote_disk_usage(host: str, user: str, path: str, key: str | None = None,
                       timeout: int = 20) -> dict | None:
     """Fetch disk usage of a remote path via ``df -Pk`` over SSH.
 
-    Returns ``{total_bytes, used_bytes, free_bytes, percent}`` or ``None`` when the
-    command fails (no connectivity, path absent, host unreachable). Best-effort; a
+    Returns ``{total_bytes, used_bytes, free_bytes, percent, mounted}`` or ``None``
+    when the command fails (no connectivity, path absent, host unreachable).
+    ``mounted`` is the filesystem's ``Mounted-on`` column, used to de-duplicate
+    several category paths that share one disk on the same target. Best-effort; a
     target whose deployment path doesn't exist yet simply reports nothing.
     """
     ssh_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15"]
@@ -262,7 +281,11 @@ def remote_disk_usage(host: str, user: str, path: str, key: str | None = None,
             percent = int(cap[:-1])
         except ValueError:
             pass
-    return {"total_bytes": total, "used_bytes": used, "free_bytes": free, "percent": percent}
+    # Last column is the mount point; join the remainder in case the path is long
+    # and df wrapped it into several fields.
+    mounted = " ".join(parts[5:]) if len(parts) > 5 else ""
+    return {"total_bytes": total, "used_bytes": used, "free_bytes": free,
+            "percent": percent, "mounted": mounted.strip()}
 
 
 def local_disk_usage(path: str) -> dict | None:

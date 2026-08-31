@@ -132,8 +132,9 @@ async function listFiles(){
     let html = '<div class="mb-3"><p class="text-xs uppercase text-slate-500 mb-2">'+data.repo+' — available files</p><div class="grid gap-1 max-h-64 overflow-auto">';
     data.files.forEach(f => {
       const q = f.replace(/^mmproj-/,'').replace(/\.gguf$/,'');
-      const cls = f.indexOf('mmproj') === 0 ? 'hf-mmproj' : 'hf-q';
-      html += `<label class="flex items-center gap-2 text-sm py-1"><input type="checkbox" class="${cls}" value="${q}" onchange="updateQuants()"> ${cacheBadge(cstat[f])}${f}</label>`;
+      const base = f.split('/').pop();
+      const cls = base.indexOf('mmproj') === 0 ? 'hf-mmproj' : 'hf-q';
+      html += `<label class="flex items-center gap-2 text-sm py-1"><input type="checkbox" class="${cls}" value="${q}" data-file="${f}" onchange="updateQuants()"> ${cacheBadge(cstat[f])}${f}</label>`;
     });
     html += '</div></div>';
     out.innerHTML = html;
@@ -162,7 +163,8 @@ document.getElementById('hf-form').onsubmit = async (e) => {
   const model = document.getElementById('hf-model').value;
   if(!model){ alert('List files first.'); return; }
   const quants = JSON.parse(document.getElementById('hf-quants-hidden').value || '[]');
-  if(!quants.length){ alert('Select at least one quant.'); return; }
+  const mmFile = (document.querySelector('.hf-mmproj:checked') || {}).dataset?.file || '';
+  if(!quants.length && !mmFile){ alert('Select at least one quant or an mmproj.'); return; }
   const target = document.getElementById('hf-target').value;
   const submit = document.getElementById('hf-submit');
   const indicator = document.getElementById('hf-indicator');
@@ -174,13 +176,15 @@ document.getElementById('hf-form').onsubmit = async (e) => {
     fd.append('model', model);
     quants.forEach(q => fd.append('quants', q));
     fd.append('no_mmproj', document.getElementById('hf-no-mmproj').checked ? 'on' : '');
+    if(mmFile) fd.append('mmproj', mmFile);
     fd.append('dry_run', document.getElementById('hf-dry-run').checked ? 'on' : '');
     if(target){ fd.append('target', target); fd.append('category', document.getElementById('hf-category').value); }
     const r = await fetch('/api/deploy', { method: 'POST', body: fd });
     const data = await r.json();
     if (data.ok) {
       result.innerHTML = `<p class="text-ok">✓ Queued${target ? ' deploy' : ' (cache-only)'} — see the Jobs page.</p>`;
-      window.location.href = '/jobs#' + data.job_id;
+      if (window.MDSPA) window.MDSPA.navigate('/jobs#' + data.job_id);
+      else window.location.href = '/jobs#' + data.job_id;
     } else {
       result.innerHTML = `<p class="text-err">${data.error || 'failed'}</p>`;
     }

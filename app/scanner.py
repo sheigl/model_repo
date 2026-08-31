@@ -19,6 +19,7 @@ Grouping rules:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass, field
@@ -38,6 +39,11 @@ IGNORE_DIRS = {
 # Markers that indicate a directory is an HF / diffusers repo (a tree).
 TREE_MARKERS = {".gitattributes", "model_index.json", "tokenizer.json",
                 "config.json", "generation_config.json"}
+
+# Co-located metadata file that marks a downloaded repo as one deployable group.
+# Its presence forces every model file under the directory into a single tree
+# card (see ``scan_source``) and carries the upstream tags to persist.
+MANIFEST_NAME = ".modelmeta.json"
 
 
 @dataclass
@@ -83,32 +89,123 @@ def _looks_like_shard_dir(dir_abs: str, model_exts: set[str]) -> bool:
     return len(shards) >= 2
 
 
+def iter_model_files(root: str) -> list[str]:
+    """Every model file under ``root`` (recursive), as repo-relative paths.
+
+    Respects IGNORE_DIRS and MODEL_EXTS; returns [] when ``root`` isn't a dir.
+    Exposed so manifest discovery shares one walk instead of re-scanning.
+    """
+    root = os.path.abspath(root)
+    if not os.path.isdir(root):
+        return []
+    out: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in IGNORE_DIRS]
+        for fn in filenames:
+            if os.path.splitext(fn)[1].lower() not in MODEL_EXTS:
+                continue
+            rel = os.path.relpath(os.path.join(dirpath, fn), root)
+            out.append(rel.replace(os.sep, "/"))
+    return sorted(out)
+
+
+def _find_manifests(root: str) -> dict[str, dict]:
+    """Map each manifest-bearing directory to its parsed ``.modelmeta.json`` data.
+
+    The source root itself is never treated as a group (its files stay
+    independent). Entries are validated: the JSON must be an object carrying a
+    non-empty ``repo_id``, otherwise it's skipped rather than raising.
+    """
+    root = os.path.abspath(root)
+    if not os.path.isdir(root):
+        return {}
+    out: dict[str, dict] = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in IGNORE_DIRS]
+        rel_dir = os.path.relpath(dirpath, root)
+        if MANIFEST_NAME in filenames:
+            try:
+                with open(os.path.join(dirpath, MANIFEST_NAME), encoding="utf-8") as fh:
+                    data = json.load(fh)
+            except (OSError, ValueError):
+                continue  # unreadable / invalid manifest -> ignore
+            repo_id = data.get("repo_id") if isinstance(data, dict) else None
+            tags = data.get("tags", []) if isinstance(data, dict) else []
+            if not repo_id:
+                continue  # must name a repo to be a real group
+            out[os.path.abspath(dirpath)] = {
+                "repo_id": str(repo_id),
+                "model_name": data.get("model_name"),
+                "tags": tags if isinstance(tags, list) else [],
+            }
+    return out
+
+
+def _manifest_owner(abs_path: str, manifests: dict[str, dict]) -> str | None:
+    """Nearest manifest-bearing ancestor dir of ``abs_path`` (own dir included).
+
+    Downloaded repos keep their upstream subpaths, so the co-located manifest must
+    own every file beneath it — not just its immediate children.
+    """
+    d = os.path.dirname(abs_path)
+    while True:
+        if d in manifests:
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+
+
 def scan_source(source_name: str, root: str) -> list[Model]:
     """Scan a single source repo and return grouped Model records."""
     root = os.path.abspath(root)
     if not os.path.isdir(root):
         return []
 
-    # Collect all model files first.
-    collected: list[tuple[str, str]] = []  # (abs_path, rel_path)
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in IGNORE_DIRS]
-        for fn in sorted(filenames):
-            ext = os.path.splitext(fn)[1].lower()
-            if ext not in MODEL_EXTS:
-                continue
-            abs_path = os.path.join(dirpath, fn)
-            rel_path = os.path.relpath(abs_path, root)
-            collected.append((abs_path, rel_path))
+    manifests = _find_manifests(root)
 
-    # Group into trees.
-    groups: dict[str, list[tuple[str, str]]] = {}
-    for abs_path, rel_path in collected:
-        key = _group_key(root, abs_path, rel_path)
-        groups.setdefault(key, []).append((abs_path, rel_path))
+    # Files under a manifest-bearing dir become one tree card named from the
+    # manifest (subfolders included — HF repos keep their subpaths); everything
+    # else keeps the existing natural grouping below.
+    manifest_dirs: dict[str, list[tuple[str, str]]] = {}
+    natural: dict[str, list[tuple[str, str]]] = {}
+    for rel in iter_model_files(root):
+        abs_path = os.path.join(root, rel.replace("/", os.sep))
+        owner = _manifest_owner(abs_path, manifests)
+        if owner is not None:
+            manifest_dirs.setdefault(owner, []).append((abs_path, rel))
+        else:
+            key = _group_key(root, abs_path, rel)
+            natural.setdefault(key, []).append((abs_path, rel))
 
     models: list[Model] = []
-    for key, members in groups.items():
+
+    # Manifest-bearing dirs -> one tree card each (kind forced to "tree" even for
+    # a single file, since the files are grouped under the repo root).
+    for abs_dir, members in manifest_dirs.items():
+        members.sort(key=lambda x: x[1])
+        total_size = sum(os.path.getsize(p) for p, _ in members)
+        rel_paths = [r for _, r in members]
+        if not rel_paths:
+            continue
+        rel_dir = os.path.relpath(abs_dir, root).replace(os.sep, "/")
+        data = manifests[abs_dir]
+        name = data["model_name"] or os.path.basename(rel_dir)
+        models.append(Model(
+            name=name,
+            category=categorize(members[0][0]),
+            quant=extract_quant(name),
+            size_bytes=total_size,
+            file_count=len(members),
+            files=[r for _, r in members],
+            kind="tree",
+            source=source_name,
+            path=rel_dir,
+        ))
+
+    # Everything else: existing grouping logic (unchanged).
+    for key, members in natural.items():
         members.sort(key=lambda x: x[1])
         total_size = sum(os.path.getsize(p) for p, _ in members)
         rel_paths = [r for _, r in members]
@@ -172,7 +269,19 @@ def _tree_display_name(members: list[tuple[str, str]]) -> str:
     rel_paths = [r for _, r in members]
     dirs = {os.path.dirname(r) for r in rel_paths}
     if len(dirs) == 1 and next(iter(dirs)):
-        return os.path.basename(next(iter(dirs)))
+        leaf_dir = next(iter(dirs))
+        leaf = os.path.basename(leaf_dir)
+        # A per-quant subdir inside a model package (e.g. "…-GGUF/UD-IQ2_XXS")
+        # gains the package context so the card reads as a real name instead of
+        # a bare quant ("UD-IQ2_XXS" -> "DeepSeek-V4-Flash-0731-GGUF/UD-IQ2_XXS").
+        quant = extract_quant(leaf)
+        if quant:
+            residue = leaf.replace(quant, "", 1).strip("-_ .")
+            if len(residue) <= 4:
+                package = os.path.basename(os.path.dirname(leaf_dir))
+                if package and package != ".":
+                    return f"{package}/{leaf}"
+        return leaf
     # Fall back to the first file's stem (strip shard suffix).
     stem = os.path.splitext(rel_paths[0])[0]
     stem = re.sub(r"-\d+[-_]of[-_]\d+$", "", stem)

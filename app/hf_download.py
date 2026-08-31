@@ -35,14 +35,16 @@ def run_hf_download(
     token_env: str = "HF_TOKEN",
     dry_run: bool = False,
     no_mmproj: bool = False,
+    mmproj: str | None = None,
     on_step=None,
     check_staleness: bool = True,
     should_cancel=None,
+    on_progress=None,
 ) -> dict:
     """Run an HF download job. Returns a summary dict; streams steps via callback."""
     provider = HuggingFaceProvider(token=os.environ.get(token_env))
     repo_id = provider.resolve(model)
-    plan = build_deploy_plan(provider, model, quants, no_mmproj)
+    plan = build_deploy_plan(provider, model, quants, no_mmproj, mmproj)
 
     counts = {"downloaded": 0, "skipped": 0}
 
@@ -59,12 +61,14 @@ def run_hf_download(
 
     if on_step:
         on_step({"action": "start", "repo": repo_id, "model": model, "quants": quants,
-                 "output": output_dir, "dry_run": dry_run, "no_mmproj": no_mmproj})
+                 "output": output_dir, "dry_run": dry_run, "no_mmproj": no_mmproj,
+                 "mmproj": mmproj})
     if not plan["plan"]:
-        return {"ok": False, "repo": repo_id, "message": "No GGUF files found"}
+        return {"ok": False, "repo": repo_id, "message": "No files matched your selection"}
 
     ensure_cached(provider, plan, output_dir, dry_run=dry_run, on_step=emit,
-                  check_staleness=check_staleness, should_cancel=should_cancel)
+                  check_staleness=check_staleness, should_cancel=should_cancel,
+                  on_progress=on_progress)
 
     return {"ok": True, "repo": repo_id, "downloaded": counts["downloaded"],
             "skipped": counts["skipped"], "dry_run": dry_run}

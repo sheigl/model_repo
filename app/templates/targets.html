@@ -37,18 +37,17 @@
       {% else %}<span class="text-slate-500">not checked yet</span>{% endif %}
     </p>
 
+    <div id="target-disks-{{ name }}" class="mb-4 space-y-2">
+      <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Disk</p>
+      <span class="text-slate-500 text-xs">checking…</span>
+    </div>
+
     <div class="space-y-1 text-sm">
       <p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Category → remote path</p>
       {% for cat, pm in t.categories.items() %}
       <div class="flex items-center justify-between gap-2 rounded-lg border border-line bg-surface-alt px-3 py-1.5">
         <span class="badge bg-slate-100 text-slate-600">{{ cat }}</span>
         <span class="min-w-0 truncate font-mono text-xs text-slate-700" title="{{ pm.remote_root }}">{{ pm.remote_root }}</span>
-        <div class="disk-bar shrink-0 w-28 hidden" data-name="{{ name }}" data-cat="{{ cat }}">
-          <div class="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
-            <div class="h-full bg-brand transition-all disk-fill"></div>
-          </div>
-          <span class="disk-meta block text-[10px] text-slate-500 mt-0.5">—</span>
-        </div>
       </div>
       {% endfor %}
     </div>
@@ -67,22 +66,54 @@ function humanBytes(n){
   return (v>=10 ? v.toFixed(0)+' '+u[i] : v.toFixed(1)+' '+u[i]);
 }
 function pctOf(d){ return d.pct!=null ? d.pct : (d.total ? Math.round(d.used/d.total*100) : 0); }
-function renderBar(el, d){
-  if(!d){ el.classList.add('hidden'); return; }
-  el.classList.remove('hidden');
-  var p = pctOf(d);
-  el.querySelector('.ldisk-bar > div').style.width = p+'%';
-  el.querySelector('.disk-meta').textContent = humanBytes(d.used)+' used · '+humanBytes(d.free)+' free ('+p+'%)';
+
+function fsPanel(fs){
+  var p = pctOf(fs);
+  var cats = (fs.categories||[]).join(', ') || fs.mounted;
+  return '<div class="rounded-lg border border-line bg-surface-alt px-3 py-2">'
+    + '<div class="flex items-baseline justify-between gap-3">'
+    +   '<span class="text-lg font-semibold text-ink">'+humanBytes(fs.free)+' free</span>'
+    +   '<span class="text-xs text-slate-500">'+humanBytes(fs.used)+' used · '+humanBytes(fs.total)+' ('+p+'%)</span>'
+    + '</div>'
+    + '<div class="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-200">'
+    +   '<div class="h-full bg-brand transition-all" style="width:'+p+'%"></div>'
+    + '</div>'
+    + '<div class="mt-1 truncate font-mono text-[10px] text-slate-500" title="'+fs.mounted+'">'+fs.mounted
+    +   (cats ? ' · <span class="text-slate-400">'+cats+'</span>' : '')
+    + '</div>'
+    + '</div>';
 }
+
+function renderLocalDisk(box, l){
+  if(!box) return;
+  if(l){
+    var p = pctOf(l);
+    box.querySelector('.ldisk-bar > div').style.width = p+'%';
+    box.querySelector('.ldisk-meta').textContent = humanBytes(l.used)+' used · '+humanBytes(l.free)+' free ('+p+'%)';
+  } else {
+    box.querySelector('.ldisk-bar > div').style.width='0%';
+    box.querySelector('.ldisk-meta').textContent='not available';
+  }
+}
+
 function renderAll(){
   var box = document.getElementById('local-disk');
-  if(box){
-    var l = DISK && DISK.local;
-    if(l){ renderBar(box, l); }
-    else { box.querySelector('.ldisk-bar > div').style.width='0%'; box.querySelector('.ldisk-meta').textContent='not available'; }
-  }
-  document.querySelectorAll('.disk-bar').forEach(el => renderBar(el, DISK && DISK.targets && DISK.targets[el.dataset.name] && DISK.targets[el.dataset.name][el.dataset.cat]));
+  if(box){ renderLocalDisk(box, DISK && DISK.local); }
+
+  document.querySelectorAll('[id^="target-disks-"]').forEach(function(el){
+    var name = el.id.replace('target-disks-', '');
+    var t = (DISK && DISK.targets && DISK.targets[name]) || null;
+    var fss = t && t.filesystems;
+    if(!fss || !fss.length){
+      el.innerHTML = '<p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Disk</p>'
+        + '<span class="text-slate-500 text-xs">not available</span>';
+      return;
+    }
+    el.innerHTML = '<p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Disk</p>'
+      + fss.map(fsPanel).join('');
+  });
 }
+
 renderAll();
 setInterval(renderAll, 30000);
 fetch('/api/disk').then(r=>r.json()).then(d=>{ DISK = d || {local:null,targets:{}}; renderAll(); }).catch(()=>{});
