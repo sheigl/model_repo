@@ -106,6 +106,22 @@ class JobQueue:
         with self._lock:
             return [self._jobs[i] for i in self._order if i in self._jobs]
 
+    def clear_finished(self) -> int:
+        """Drop terminal jobs (done/failed/cancelled). Queued/running jobs stay.
+
+        Returns the number of jobs removed.
+        """
+        terminal = (JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELLED)
+        removed = 0
+        with self._lock:
+            for job_id in list(self._order):
+                job = self._jobs.get(job_id)
+                if job and job.status in terminal:
+                    del self._jobs[job_id]
+                    self._order.remove(job_id)
+                    removed += 1
+        return removed
+
     # ---- worker -----------------------------------------------------------
 
     def start_worker(self, runner):

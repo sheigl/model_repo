@@ -29,7 +29,7 @@ function formToFormData(form) {
   var scrollPos = {};       // path -> window.scrollY captured on leave
   var activePath = null;
   var loading = {};         // path -> true while a fetch is in flight
-  var routeHrefs = ['/', '/targets', '/downloads', '/jobs', '/settings'];
+  var routeHrefs = ['/', '/targets', '/downloads', '/packages', '/jobs', '/settings'];
 
   function pathOf(href) {
     try {

@@ -559,7 +559,7 @@ function openCacheRepo(m){
 
   // A grouped ("tree") card is several files under one name — list them with checkboxes
   // so the user can pick which ones to sync. A single-file card just shows its path.
-  if(m.files && m.files.length > 1){
+  if((m.file_count || 1) > 1){
     loadCacheFiles(m);
   } else {
     document.getElementById('dw-filecount').textContent = (m.file_count||1)+' cached';
@@ -584,10 +584,12 @@ async function loadCacheFiles(m){
     const d = await r.json();
     if(!d.ok) throw new Error(d.error || 'could not list files');
     cacheSrcMap = {};
+    const sizeByKey = {};
+    for (const [full, sz] of Object.entries(d.sizes||{})) { const s = stripCommon(full, m.path); sizeByKey[s] = sz; }
     const files = (d.files||[]).map(f => { const s = stripCommon(f, m.path); cacheSrcMap[s] = f; return s; });
     document.getElementById('dw-filecount').textContent = files.length+' files';
     filesEl.innerHTML = `<div class="max-h-60 overflow-auto rounded-lg border border-line bg-surface-alt"><div id="dw-files-tree" class="text-sm"></div></div>` + cacheFileFooter(m);
-    document.getElementById('dw-files-tree').innerHTML = renderHubTree(files, d.sizes||{}, {}) || '<div class="px-3 py-4 text-center text-xs text-slate-500">no files</div>';
+    document.getElementById('dw-files-tree').innerHTML = renderHubTree(files, sizeByKey, {}) || '<div class="px-3 py-4 text-center text-xs text-slate-500">no files</div>';
     refreshCheckAll();
     // Expand top-level folders so the group's contents are visible at a glance.
     document.querySelectorAll('#dw-files-tree .tree-body:not([data-for*="/"])').forEach(b=>b.classList.remove('hidden'));

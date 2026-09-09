@@ -73,6 +73,32 @@ class WorkerCancelTests(unittest.TestCase):
         self.assertEqual(q.get(job.id).status, jobs.JobStatus.DONE)
 
 
+class ClearFinishedTests(unittest.TestCase):
+    def test_clear_finished_removes_only_terminal(self):
+        # Distinct kinds so the millisecond-based ids can't collide.
+        q = jobs.JobQueue()
+        done = q.create("sync", "x")
+        done.status = jobs.JobStatus.DONE
+        failed = q.create("deploy", "x")
+        failed.status = jobs.JobStatus.FAILED
+        cancelled = q.create("hf_download", "x")
+        cancelled.status = jobs.JobStatus.CANCELLED
+        queued = q.create("k4", "x")
+        running = q.create("k5", "x")
+        running.status = jobs.JobStatus.RUNNING
+
+        self.assertEqual(q.clear_finished(), 3)
+        self.assertIsNone(q.get(done.id))
+        self.assertIsNone(q.get(failed.id))
+        self.assertIsNone(q.get(cancelled.id))
+        self.assertIsNotNone(q.get(queued.id))
+        self.assertIsNotNone(q.get(running.id))
+        # Order of the survivors is preserved.
+        self.assertEqual([j.id for j in q.all()], [queued.id, running.id])
+        # Second pass is a no-op.
+        self.assertEqual(q.clear_finished(), 0)
+
+
 class CancelRestartApiTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
@@ -115,6 +141,23 @@ class CancelRestartApiTests(unittest.TestCase):
     def test_restart_unknown_job_404(self):
         r = self.client.post("/api/job/does-not-exist/restart")
         self.assertEqual(r.status_code, 404)
+
+    def test_clear_endpoint_removes_terminal_but_keeps_active(self):
+        done = jobs.queue.create("sync", "x")
+        jobs.queue.get(done.id).status = jobs.JobStatus.DONE
+        queued = jobs.queue.create("deploy", "y")
+
+        r = self.client.post("/api/jobs/clear")
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()["ok"])
+        # Other tests may leave terminal jobs on the shared queue.
+        self.assertGreaterEqual(r.json()["removed"], 1)
+        self.assertIsNone(jobs.queue.get(done.id))
+        self.assertIsNotNone(jobs.queue.get(queued.id))
+
+        ids = [j["id"] for j in self.client.get("/api/jobs").json()["jobs"]]
+        self.assertNotIn(done.id, ids)
+        self.assertIn(queued.id, ids)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Jobs — Model Deployment{% endblock %}
 {% block content %}
-<div class="mb-5">
-  <h1 class="text-2xl font-semibold tracking-tight text-ink">Job queue</h1>
-  <p class="mt-1 text-sm text-slate-500">Deploys, downloads and syncs run on a single background worker. Live output streams here.</p>
+<div class="mb-5 flex items-start justify-between gap-3">
+  <div>
+    <h1 class="text-2xl font-semibold tracking-tight text-ink">Job queue</h1>
+    <p class="mt-1 text-sm text-slate-500">Deploys, downloads and syncs run on a single background worker. Live output streams here.</p>
+  </div>
+  <button id="clear-finished" class="btn-ghost shrink-0 hidden" onclick="clearFinished()">Clear finished</button>
 </div>
 
 <div class="card space-y-3" id="job-list">
@@ -80,6 +83,10 @@ async function refresh(){
       list.innerHTML = '<p class="text-slate-400">No jobs yet.</p>';
     } else {
       list.innerHTML = data.jobs.map(jobRow).join('');
+      // Only offer clearing when there's something finished to clear.
+      const hasFinished = data.jobs.some(j => j.status !== 'queued' && j.status !== 'running');
+      const clearBtn = document.getElementById('clear-finished');
+      if(clearBtn) clearBtn.classList.toggle('hidden', !hasFinished);
       // refresh() rebuilds the DOM, so re-expand + re-render any open panels.
       openLogs.forEach(id => {
         const wrap = logWrap(id);
@@ -165,6 +172,31 @@ async function restartJob(jobId, btn){
   } catch(e){
     btn.disabled = false;
     alert(e.message);
+  }
+}
+
+async function clearFinished(){
+  const btn = document.getElementById('clear-finished');
+  if(btn) btn.disabled = true;
+  try {
+    const r = await fetch('/api/jobs/clear', {method: 'POST'});
+    if(!r.ok) throw new Error((await r.json()).error || 'clear failed');
+    // Drop client-side state for the now-removed terminal jobs so the
+    // rebuild starts clean (streams only exist for active jobs anyway).
+    Object.keys(jobsById).forEach(id => {
+      const j = jobsById[id];
+      if(j && j.status !== 'queued' && j.status !== 'running'){
+        delete logs[id];
+        finalized.delete(id);
+        openLogs.delete(id);
+        if(streams[id]){ streams[id].close(); delete streams[id]; }
+      }
+    });
+    refresh();
+  } catch(e){
+    if(btn) btn.disabled = false;
+    alert(e.message);
+    refresh();
   }
 }
 

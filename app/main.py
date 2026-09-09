@@ -8,8 +8,12 @@ Routes:
   POST /api/hf/download  enqueue an HF download job -> {job_id}
   GET  /jobs             live job queue (SSE progress)
   GET  /settings         edit config.yaml targets/path mappings
+  GET  /packages         custom model packages (grouped multi-repo downloads)
+  POST /api/packages     create package   POST /api/packages/{id} update
+  POST /api/packages/{id}/delete        GET  /api/packages/{id}/status
+  POST /api/packages/{id}/fetch         queue a package_fetch job
   API helpers: /api/inventory, /api/jobs, /api/job/<id>,
-               /api/targets/status, /api/hf/list
+               /api/targets/status, /api/hf/list, /api/packages
 
 Sync and HF-download jobs run on a single background worker thread so rsync/HF
 output stays ordered. The UI polls /api/job/<id> or subscribes to the SSE stream
@@ -21,26 +25,46 @@ from __future__ import annotations
 import os
 import threading
 import time
+from contextlib import asynccontextmanager
 from dataclasses import asdict
+from html import escape
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 from .categorize import categorize_repo
-from .config import (CONFIG_PATH, Config, PathMapping, Source, TargetMachine, load_config)
+from .config import (CONFIG_PATH, Config, PathMapping, Source, TargetMachine, _apply, load_config)
 from .jobs import JobStatus, queue
 from .scanner import MANIFEST_NAME, scan_all
 from .sync import local_disk_usage, remote_disk_usage, run_rsync, test_connection
 from . import hf_download as hf
 from . import model_store
+from . import packages
 from .model_store import apply_model_meta, get_or_default, key_for, owner
 from .registry import (build_deploy_plan, cache_status_for_repo,
                        ensure_cached, get_provider)
 
-app = FastAPI(title="Model Deployment")
+
+@asynccontextmanager
+async def _lifespan(application: FastAPI):
+    """Host lifespan: runs the background workers and, when built, the mounted
+    MCP session manager. A mounted sub-app's own lifespan never runs, so the host
+    must enter ``mcp.session_manager.run()`` or every /mcp request fails with
+    "Task group is not initialized". Replaces the old @app.on_event('startup')
+    (FastAPI does not run on_event handlers when lifespan= is given)."""
+    _start_workers()
+    if _mcp_mount is not None:
+        async with _mcp_mount.session_manager.run():
+            yield
+    else:
+        yield
+
+
+app = FastAPI(title="Model Deployment", lifespan=_lifespan)
 
 
 @app.middleware("http")
@@ -83,6 +107,9 @@ _conn_lock = threading.Lock()
 # Disk usage snapshot: {"local": view|None, "targets": {name: {category: view}}}
 _disk_cache: dict = {}
 _disk_lock = threading.Lock()
+
+# MCP sub-app mount (set by _build_mcp(); entered by _lifespan). None = disabled.
+_mcp_mount = None
 
 
 def _disk_view(u):
@@ -135,6 +162,34 @@ def _cfg() -> Config:
 
 
 # ---------------------------------------------------------------------------
+# Public accessors shared with the MCP server (app/mcp_server.py). These wrap
+# the private helpers/caches above so MCP tools reuse exact app logic without a
+# circular import (mcp_server imports main only lazily, inside tool bodies).
+# ---------------------------------------------------------------------------
+
+def catalog(cfg: Config):
+    """Scan sources + merge persisted metadata (shared with the MCP server)."""
+    return _catalog(cfg)
+
+
+def model_json(m):
+    """Serialize a scanned model into the API card shape (shared with MCP)."""
+    return _model_json(m)
+
+
+def conn_cache_snapshot() -> dict:
+    """Copy of the SSH connectivity cache {target: (ok, detail, checked_at)}."""
+    with _conn_lock:
+        return dict(_conn_cache)
+
+
+def disk_cache_snapshot() -> dict:
+    """Copy of the disk usage snapshot {"local": ..., "targets": {...}}."""
+    with _disk_lock:
+        return dict(_disk_cache)
+
+
+# ---------------------------------------------------------------------------
 # Catalog + model metadata
 # ---------------------------------------------------------------------------
 
@@ -172,6 +227,7 @@ def _model_json(m) -> dict:
     return {
         "name": m.name, "category": m.category, "quant": m.quant,
         "size_gb": m.size_gb, "file_count": m.file_count, "kind": m.kind,
+        "node_kind": m.kind,
         "files": m.files,
         "source": m.source, "path": m.path,
         "key": key_for(m.source, m.path),
@@ -463,12 +519,65 @@ def _runner(job, emit):
                       "target": m["target"], "remote_root": remote_root,
                       "cached_or_downloaded": len(local_paths), "synced": synced,
                       "skipped": skipped, "failed": failed, "dry_run": m.get("dry_run", False)}
+        if failed == 0 and not m.get("dry_run"):
+            _record_download_meta(cfg, job.result)
+    elif job.kind == "package_fetch":
+        m = job.meta
+        cfg = _cfg()
+        pkg = packages.get_package(m["package_id"])
+        if pkg is None:
+            raise RuntimeError(f"package {m['package_id']} no longer exists")
+        provider = get_provider(cfg.registry.provider, cfg.registry.token_env)
+
+        def step(s):
+            emit(f"[{s.get('action')}] {s.get('local', s.get('remote_file', s.get('note','')))}")
+
+        summary = packages.fetch_package(
+            pkg, cfg.registry.repo_root, provider,
+            dry_run=m.get("dry_run", False), check_staleness=True, on_step=step,
+            should_cancel=lambda: queue.is_cancelled(job.id),
+            on_progress=lambda frac: job.set_progress(frac * 100),
+        )
+        job.result = {"package": pkg["name"], **summary}
+
+        # Persist a manifest for each repo the package touched so its files group
+        # into a single tree card on the next scan. Skipped for dry-runs/failures.
+        # Best-effort: a config that lacks source metadata (e.g. in tests) must
+        # not break an otherwise-successful fetch.
+        if summary.get("ok") and not summary.get("dry_run"):
+            try:
+                seen_repos: set[str] = set()
+                for c in pkg["components"]:
+                    repo = c["repo"]
+                    if repo and repo not in seen_repos:
+                        seen_repos.add(repo)
+                        _record_download_meta(cfg, {"repo": repo})
+            except Exception as e:
+                print(f"  !! could not record package meta: {e}")
 
 
 def _start_workers():
     queue.start_worker(_runner)
     threading.Thread(target=_conn_loop, daemon=True).start()
     threading.Thread(target=_disk_loop, daemon=True).start()
+
+
+def _build_mcp():
+    """Build + mount the MCP sub-app if enabled. Never raises: any import/build
+    failure logs a warning and the main app still boots (the feature is optional).
+    Must run after app + _cfg exist (module fully loaded)."""
+    global _mcp_mount
+    cfg = _cfg()
+    if not cfg.mcp.enabled:
+        return
+    try:
+        from .mcp_server import build_mcp_app
+        mount = build_mcp_app(cfg)
+        app.mount(cfg.mcp.path, mount.app)
+        _mcp_mount = mount
+        print(f"  MCP server mounted at {cfg.mcp.path}")
+    except Exception as e:
+        print(f"  !! MCP server disabled: {e}")
 
 
 def _conn_loop():
@@ -488,11 +597,6 @@ def _conn_loop():
 # ---------------------------------------------------------------------------
 # Pages
 # ---------------------------------------------------------------------------
-
-@app.on_event("startup")
-def _startup():
-    _start_workers()
-
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
@@ -576,10 +680,95 @@ def settings(request: Request):
     }
     yaml_text = yaml.safe_dump(data, default_flow_style=False, sort_keys=False)
     resp = TEMPLATES.TemplateResponse(request, "settings.html", {"active": "settings", "cfg": cfg,
-                                      "yaml_text": yaml_text, "config_path": str(CONFIG_PATH),
-                                      "app_version": _app_version()})
+                                       "yaml_text": yaml_text, "config_path": str(CONFIG_PATH),
+                                       "app_version": _app_version()})
     resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+@app.get("/packages", response_class=HTMLResponse)
+def packages_page(request: Request):
+    resp = TEMPLATES.TemplateResponse(request, "packages.html", {"active": "packages",
+                                       "app_version": _app_version()})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# API — packages
+# ---------------------------------------------------------------------------
+
+class PkgComponentIn(BaseModel):
+    label: str = ""
+    repo: str
+    files: list[str]
+
+
+class PkgIn(BaseModel):
+    name: str
+    task: str = ""
+    description: str = ""
+    components: list[PkgComponentIn]
+
+
+def _pkg_components(body: PkgIn) -> list[dict]:
+    return [c.model_dump() for c in body.components]
+
+
+@app.get("/api/packages")
+def api_packages_list():
+    return {"ok": True, "packages": packages.list_packages()}
+
+
+@app.post("/api/packages")
+def api_packages_create(body: PkgIn):
+    try:
+        pkg = packages.create_package(body.name, body.task, body.description,
+                                      _pkg_components(body))
+    except ValueError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    return {"ok": True, "package": pkg}
+
+
+@app.post("/api/packages/{pid}")
+def api_packages_update(pid: str, body: PkgIn):
+    try:
+        pkg = packages.update_package(pid, body.name, body.task, body.description,
+                                      _pkg_components(body))
+    except ValueError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    if pkg is None:
+        return JSONResponse({"ok": False, "error": "package not found"}, status_code=404)
+    return {"ok": True, "package": pkg}
+
+
+@app.post("/api/packages/{pid}/delete")
+def api_packages_delete(pid: str):
+    removed = packages.delete_package(pid)
+    if not removed:
+        return JSONResponse({"ok": False, "error": "package not found"}, status_code=404)
+    return {"ok": True, "removed": pid}
+
+
+@app.get("/api/packages/{pid}/status")
+def api_packages_status(pid: str):
+    pkg = packages.get_package(pid)
+    if pkg is None:
+        return JSONResponse({"ok": False, "error": "package not found"}, status_code=404)
+    cfg = _cfg()
+    provider = get_provider(cfg.registry.provider, cfg.registry.token_env)
+    st = packages.status_for(pkg, cfg.registry.repo_root, provider)
+    return {"ok": True, **st}
+
+
+@app.post("/api/packages/{pid}/fetch")
+def api_packages_fetch(pid: str, dry_run: bool = False):
+    pkg = packages.get_package(pid)
+    if pkg is None:
+        return JSONResponse({"ok": False, "error": "package not found"}, status_code=404)
+    job = queue.create("package_fetch", f"Fetch package “{pkg['name']}”")
+    job.meta = {"package_id": pid, "dry_run": dry_run}
+    return {"ok": True, "job_id": job.id}
 
 
 # ---------------------------------------------------------------------------
@@ -929,7 +1118,7 @@ def api_cache_files(key: str = ""):
             sizes[rel] = os.path.getsize(os.path.join(root, rel))
         except OSError:
             sizes[rel] = None
-    return {"key": key, "files": model.files, "sizes": sizes}
+    return {"ok": True, "key": key, "files": model.files, "sizes": sizes}
 
 
 # ---------------------------------------------------------------------------
@@ -1035,6 +1224,12 @@ def api_jobs():
     )
 
 
+@app.post("/api/jobs/clear")
+def api_jobs_clear():
+    removed = queue.clear_finished()
+    return JSONResponse({"ok": True, "removed": removed})
+
+
 @app.get("/api/job/{job_id}")
 def api_job(job_id: str):
     job = queue.get(job_id)
@@ -1114,21 +1309,21 @@ def api_stream(job_id: str):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/settings/save")
-def api_settings_save(cfg_yaml: str = Form(...)):
+def api_settings_save(request: Request, cfg_yaml: str = Form(...)):
     import yaml
-    cfg = _cfg()
-    data = yaml.safe_load(cfg_yaml) or {}
-    cfg.targets = {}
-    for name, t in (data.get("targets") or {}).items():
-        cats = {}
-        for cat, pm in (t.get("categories") or {}).items():
-            cats[cat] = PathMapping(
-                remote_root=pm["remote_root"], subdirs=pm.get("subdirs", {}))
-        cfg.targets[name] = TargetMachine(**{**t, "categories": cats})
     try:
+        data = yaml.safe_load(cfg_yaml) or {}
+        cfg = Config()
+        _apply(cfg, data)
         cfg.save()
+        if request.headers.get("HX-Request"):
+            return HTMLResponse(
+                f'<span class="text-ok font-medium">Config saved ✓ — {escape(str(CONFIG_PATH))}</span>')
         return {"ok": True}
     except Exception as e:
+        msg = f"Save failed: {escape(str(e))}"
+        if request.headers.get("HX-Request"):
+            return HTMLResponse(f'<span class="text-err font-medium">{msg}</span>', status_code=400)
         return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
 
@@ -1156,3 +1351,10 @@ def web_manifest():
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+# Mount the optional MCP server (search/download/deploy/packages for AI agents).
+# Runs at the very end of module load — after app + _cfg + all helpers exist — so
+# the mount is in place before uvicorn serves anything, and a build failure never
+# stops the web app itself (see _build_mcp).
+_build_mcp()

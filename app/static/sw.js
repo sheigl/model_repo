@@ -3,7 +3,7 @@
 // Registration is guarded by the host (base.html) with 'serviceWorker' in navigator,
 // so this only activates over a secure context (HTTPS / localhost).
 
-const CACHE = 'modeldeploy-v1';
+const CACHE = 'modeldeploy-v2';
 const SHELL = ['/', '/targets', '/downloads', '/jobs', '/settings'];
 const STATIC = [
   '/static/app.js',

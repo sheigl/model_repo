@@ -11,8 +11,8 @@
     <label class="label">config.yaml</label>
     <textarea id="cfg-yaml" name="cfg_yaml" class="input mt-1 font-mono text-xs leading-relaxed max-h-[50vh] md:max-none overflow-auto" rows="26" spellcheck="false">{{ yaml_text }}</textarea>
     <div class="mt-3 flex flex-wrap items-center gap-3">
-      <button class="btn-primary w-full md:w-auto" htmx-post="/api/settings/save" htmx-include="#cfg-yaml"
-              htmx-target="#save-result" htmx-indicator="#save-indicator">Save config</button>
+      <button class="btn-primary w-full md:w-auto" hx-post="/api/settings/save" hx-include="#cfg-yaml"
+              hx-target="#save-result" hx-indicator="#save-indicator">Save config</button>
       <div id="save-indicator" class="htmx-indicator text-sm text-slate-500">saving…</div>
       <div id="save-result" class="text-sm"></div>
     </div>
@@ -42,4 +42,11 @@
     </div>
   </div>
 </div>
+<script>
+  // Show the server's error fragment in #save-result even on 4xx/5xx (htmx only
+  // swaps success responses by default).
+  document.addEventListener('htmx:beforeSwap', function (ev) {
+    if (ev.detail.xhr && ev.detail.xhr.status >= 400) ev.detail.shouldSwap = true;
+  });
+</script>
 {% endblock %}

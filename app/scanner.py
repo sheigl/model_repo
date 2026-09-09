@@ -71,12 +71,42 @@ def _is_hf_shard(rel_path: str) -> bool:
 
 
 def _looks_like_hf_repo(dir_abs: str) -> bool:
-    """A directory is an HF/diffusers tree if it carries repo markers."""
+    """A directory is an HF/diffusers tree if it carries repo markers.
+
+    Also detects pure-GGUF repos that mix main quants with auxiliary components
+    (mmproj-*.gguf vision projectors, or subdirs like MTP/). These are always part
+    of a single model, so the whole directory groups as one tree instead of each
+    file becoming its own card. A bare "main file present" directory is still NOT
+    a tree (independent flat quants stay separate) — the aux signal is required.
+    """
     try:
         entries = os.listdir(dir_abs)
     except OSError:
         return False
-    return any(m in entries for m in TREE_MARKERS)
+    if any(m in entries for m in TREE_MARKERS):
+        return True
+
+    def _is_model_file(f: str) -> bool:
+        return os.path.splitext(f)[1].lower() in MODEL_EXTS
+
+    model_files = [f for f in entries if _is_model_file(f)]
+    mmproj_files = [f for f in model_files if f.startswith("mmproj")]
+    main_files = [f for f in model_files if not f.startswith("mmproj")]
+    if mmproj_files and main_files:
+        return True
+    # Subdir with model files (e.g. MTP/) alongside a main file at this level.
+    if main_files:
+        for entry in entries:
+            child = os.path.join(dir_abs, entry)
+            if not os.path.isdir(child):
+                continue
+            try:
+                child_files = os.listdir(child)
+            except OSError:
+                continue
+            if any(_is_model_file(f) for f in child_files):
+                return True
+    return False
 
 
 def _looks_like_shard_dir(dir_abs: str, model_exts: set[str]) -> bool:
@@ -249,19 +279,31 @@ def _group_key(root: str, abs_path: str, rel_path: str) -> str:
         base = "/".join(parts[:idx + 1])
         return f"{base}::split"
 
-    # Per-quant subdirs / diffusers pipelines: group by containing directory,
-    # but only if that dir actually looks like a multi-file tree.
-    parent_abs = os.path.dirname(abs_path)
-    is_tree = _looks_like_hf_repo(parent_abs) or _looks_like_shard_dir(parent_abs, MODEL_EXTS)
+    # Find the deepest ancestor directory that does NOT itself look like an HF
+    # repo tree. A GGUF repo (e.g. unsloth/gemma-...-GGUF) can hold prior shards
+    # inline plus subdirs like MTP/ that carry the aux weights; all of those must
+    # collapse under the same repo root rather than becoming their own cards.
+    abs_root = os.path.abspath(root)
+    d = os.path.dirname(abs_path)
+    tree_root = None
+    while True:
+        # The source root itself is never treated as a tree (its files stay
+        # independent) — only subdirectories can be repo roots.
+        if d != abs_root and (_looks_like_hf_repo(d) or _looks_like_shard_dir(d, MODEL_EXTS)):
+            tree_root = d
+            break
+        parent = os.path.dirname(d)
+        if parent == d or parent == abs_root or not parent.startswith(abs_root):
+            break
+        d = parent
 
-    # A flat GGUF file in the repo root (parent == ".") is always its own model.
-    if parent == "." and not is_tree:
+    if tree_root is None:
+        # No tree detected: a flat file in the repo root is its own model; a file
+        # in a subdir (no markers) is also its own model.
         return rel_path
 
-    if is_tree:
-        return f"{parent}::tree"
-    # Not a tree -> each file is its own model, even inside a subdir.
-    return rel_path
+    rel_dir = os.path.relpath(tree_root, root).replace(os.sep, "/")
+    return f"{rel_dir}::tree"
 
 
 def _tree_display_name(members: list[tuple[str, str]]) -> str:

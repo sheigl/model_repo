@@ -62,10 +62,28 @@ class RegistryConfig:
 
 
 @dataclass
+class MCPConfig:
+    """Model Context Protocol server settings (mounted into the web app at /mcp).
+
+    Lets AI agents search the hub, download/deploy models, manage packages and
+    inspect jobs/targets/disk over the Model Context Protocol. Optional: setting
+    ``enabled: false`` disables it entirely; a missing ``mcp:`` YAML section loads
+    these defaults.
+    """
+
+    enabled: bool = True
+    path: str = "/mcp"                     # mount prefix for the MCP endpoint
+    auth_token: str = ""                   # empty = open (like the rest of the API)
+    allow_origins: list[str] = field(default_factory=list)  # browser CORS origins
+    trusted_hosts: list[str] = field(default_factory=list)  # Host allowlist; empty = any
+
+
+@dataclass
 class Config:
     sources: list[Source] = field(default_factory=list)
     targets: dict[str, TargetMachine] = field(default_factory=dict)
     registry: RegistryConfig = field(default_factory=RegistryConfig)
+    mcp: MCPConfig = field(default_factory=MCPConfig)
     app_port: int = 8321
     bind_host: str = "0.0.0.0"
 
@@ -93,6 +111,7 @@ class Config:
             "sources": [asdict(s) for s in self.sources],
             "targets": {k: asdict(v) for k, v in self.targets.items()},
             "registry": asdict(self.registry),
+            "mcp": asdict(self.mcp),
             "app_port": self.app_port,
             "bind_host": self.bind_host,
         }
@@ -127,6 +146,15 @@ def _apply(cfg: Config, data: dict) -> None:
         token_env=str(reg.get("token_env", "HF_TOKEN")),
         repo_root=str(reg.get("repo_root", reg.get("default_repo_root", "/mnt/4TB/AI/models"))),
         options=dict(reg.get("options") or {}),
+    )
+
+    mc = data.get("mcp") or {}
+    cfg.mcp = MCPConfig(
+        enabled=bool(mc.get("enabled", True)),
+        path=str(mc.get("path", "/mcp")),
+        auth_token=str(mc.get("auth_token", "")),
+        allow_origins=list(mc.get("allow_origins") or []),
+        trusted_hosts=list(mc.get("trusted_hosts") or []),
     )
 
 

@@ -59,6 +59,13 @@ registry:                       # source of truth (pluggable model hub)
   repo_root: "/mnt/4TB/AI/models"   # server-side cache dir
   options: {}                   # provider-specific options (future)
 
+mcp:                            # Model Context Protocol server (optional, on by default)
+  enabled: true                 # false disables the /mcp endpoint
+  path: /mcp                    # mount prefix (only /mcp is tested)
+  auth_token: ""                # empty = open; set to require Bearer token
+  allow_origins: []             # browser CORS origins (empty = none)
+  trusted_hosts: []             # Host header allowlist (empty = any)
+
 app_port: 8321
 bind_host: "0.0.0.0"
 ```
@@ -131,3 +138,99 @@ The image installs `rsync` and `openssh-client` since they are required at runti
 - Connectivity checks run every 15s in the background and cache results per target.
 - The default config ships two example targets (`ai.home`, `desktop2.home`); edit or replace
   them to match your environment.
+
+## MCP Server (AI agent access)
+
+An optional [Model Context Protocol](https://modelcontextprotocol.io/) endpoint lets AI agents
+inspect the cache, search the hub, submit download/deploy jobs and manage model packages over a
+single `/mcp` transport — no browser, no HTML parsing required.
+
+### Enable / disable
+
+By default MCP is on. To disable or change settings, add or edit the `mcp:` section in
+`config.yaml` (or via the **Settings** page):
+
+```yaml
+mcp:
+  enabled: true            # set false to remove the /mcp mount
+  path: /mcp
+  auth_token: ""           # set a token to require Bearer auth
+  allow_origins: []        # browser CORS origins for client-side apps
+  trusted_hosts: []        # Host header allowlist (empty = any)
+```
+
+### Endpoint
+
+`POST /mcp` — Streamable HTTP transport. Supports MCP protocol version 2025-03-26.
+The session lifecycle is managed by the host app's lifespan, so the same endpoint handles
+initialize → tools/call → session teardown.
+
+When `auth_token` is set, every `POST /mcp` must carry `Authorization: Bearer <token>`.
+
+### Available tools
+
+| Tool | Purpose |
+|------|---------|
+| `hub_search` | Search the model hub for repos (text, pipeline filter, GGUF filter, pagination) |
+| `hub_files` | List files in a hub repo with remote sizes and per-file cache status |
+| `cache_list` | Browse the locally cached model catalog (filter by category/text) |
+| `cache_status` | Per-file cache status for a specific hub repo |
+| `download_model` | Download a model into the local cache (queued job) |
+| `deploy_model` | Download + rsync to a named target (queued job) |
+| `target_list` | List configured targets, their host/user/ntfs and category → path mappings |
+| `target_status` | SSH connectivity snapshot per target (background refreshed every 15 s) |
+| `disk_usage` | Local + per-target disk usage (background refreshed every 30 s) |
+| `job_list` | List all background jobs with status, progress, log |
+| `job_status` | Poll a specific job until `done` / `failed` / `cancelled` |
+| `job_cancel` | Cancel a queued or running job |
+| `package_list` | List custom model packages |
+| `package_create` | Create a new package (named group of files from one or more repos) |
+| `package_update` | Rename or edit a package's components |
+| `package_status` | Per-file hub cache status for every file in a package |
+| `package_fetch` | Download all missing/stale package files (queued job) |
+| `package_delete` | Delete a package definition |
+
+### Minimal client example
+
+```python
+import anyio
+from mcp import Client
+from mcp.shared.mcp_session import ClientSession
+
+async def main():
+    from app.mcp_server import create_mcp_server
+    mcp = create_mcp_server()
+    async with Client(mcp) as client:
+        tools = await client.list_tools()
+        print("Tools:", [t.name for t in tools.tools])
+
+        result = await client.call_tool("hub_search", {"query": "llama 3", "limit": 3})
+        for repo in result.structured_content["results"]:
+            print(f"  {repo['id']}  downloads={repo['downloads']}")
+
+        # Submit a download job, then poll
+        dl = await client.call_tool("download_model", {"model": "unsloth/gemma-3-4b-it-GGUF"})
+        job_id = dl.structured_content["job_id"]
+        print(f"Download job: {job_id}")
+
+anyio.run(main)
+```
+
+Or from the CLI, using any MCP-compatible client:
+
+```bash
+# with the default config (no auth), POST directly to the endpoint:
+curl -X POST http://localhost:9999/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize",
+       "params":{"protocolVersion":"2025-03-26","capabilities":{},
+                 "clientInfo":{"name":"curl","version":"0.1.0"}}}'
+```
+
+### Notes
+
+- Every long-running tool (`download_model`, `deploy_model`, `package_fetch`) returns a
+  `job_id` immediately. Agents must poll `job_status` until `status == "done"` or `"failed"`.
+- The single background worker keeps downloads and rsync ordered exactly as the web UI does.
+- All tools return `structured_content` (TypedDict JSON) alongside the human-readable JSON text.
+- Setting `enabled: false` removes the mount entirely; a restart is required after toggling.

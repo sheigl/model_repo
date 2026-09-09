@@ -21,23 +21,43 @@ Operational notes for working on + testing this repo inside the OpenCode contain
   ```bash
   uv venv --python /usr/bin/python3.13 && uv sync --frozen
   ```
-- The server itself starts fine via `setsid --fork uv run model-repo` (uv manages its own
+- The service runs the entry point via `uv run model-repo` (uv manages its own
   interpreter), so a broken `.venv/bin/python` launcher does not stop the app — only direct
   `python` invocation and scripts that call it.
 
 ## Running the app
 
-```bash
-# from /home/openchamber/code/model_repo
-uv sync --frozen                                  # deps + install this package (entry point: model-repo)
-MODEL_REPO_CONFIG=/path/to/config.yaml uv run model-repo   # binds bind_host/app_port from config.yaml
-```
+**The server runs as a systemd *user* service: `model-repo.service`** (user `sheigl`, uid 1000).
+It is the thing that owns port 9999 — don't run a second instance alongside it.
 
+- Unit file: `~/.config/systemd/user/model-repo.service` (enabled, `WantedBy=default.target`):
+  - `ExecStart=%h/.local/bin/uv run model-repo`
+  - `WorkingDirectory=/home/sheigl/code/model_repo`
+  - `Environment=MODEL_REPO_CONFIG=/home/sheigl/code/model_repo/app/config.yaml`
+  - `Type=simple`, `Restart=on-failure`, `RestartSec=5`
+- Manage it:
+  ```bash
+  systemctl --user status  model-repo
+  systemctl --user restart model-repo     # after code changes (uvicorn has no auto-reload)
+  systemctl --user stop    model-repo     # only if you must run a manual instance
+  journalctl --user -u model-repo -n 100 --no-pager   # logs (not /tmp/app_boot.log)
+  ```
+- **Killing the server PID makes systemd respawn it ~5 s later** (`Restart=on-failure`).
+  Don't fight it with `/proc` PID scans for this app — restart via systemctl.
+- Manual runs are only for when the service is stopped:
+  ```bash
+  # from /home/sheigl/code/model_repo
+  uv sync --frozen                                  # deps + install this package (entry point: model-repo)
+  setsid --fork uv run model-repo </dev/null >/tmp/app_boot.log 2>&1
+  ```
+  Note the unit uses plain `uv run` (no `--frozen`/`--no-sync`), so a service (re)start may
+  sync the venv from the lockfile first — the same clobbering risk as external `uv run`s
+  (see "How to test" above).
 - Config: `app/config.yaml` (`bind_host`, `app_port`, `sources`, `targets`, `registry`).
   Default port is `9999`. Override with `MODEL_REPO_CONFIG`.
 - Single entry point: `uv run model-repo` → launches uvicorn on config's `bind_host`/`app_port`.
-- No `pkill`/`pgrep`/`fuser`; kill old servers by scanning `/proc/*/cmdline` for the PID and
-  killing it directly. Background with `setsid --fork … </dev/null >/tmp/app_boot.log 2>&1`.
+- For other (non-model-repo) stray processes: no `pkill`/`pgrep`/`fuser`; scan
+  `/proc/*/cmdline` for the PID and kill it directly.
 
 ## Playwright / screenshots (for verifying UI)
 

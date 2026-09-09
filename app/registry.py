@@ -361,6 +361,25 @@ def _download_and_place(provider: RepoProvider, repo_id: str, remote_file: str,
         on_step({"action": "download", "remote_file": remote_file, "local": local_name})
 
 
+def _prune_empty_dirs(root: str, paths: list[str]) -> None:
+    """Best-effort removal of directories left empty after files were moved.
+
+    Walks up from each source path toward *root*, removing a directory only
+    while it is empty; stops at the first non-empty directory or at *root*.
+    """
+    root = os.path.abspath(root)
+    seen: set[str] = set()
+    for p in paths:
+        d = os.path.abspath(os.path.dirname(p))
+        while d and d != root and d not in seen:
+            seen.add(d)
+            try:
+                os.rmdir(d)
+            except OSError:
+                break
+            d = os.path.dirname(d)
+
+
 def ensure_cached(provider: RepoProvider, plan: dict, repo_root: str,
                   dry_run: bool = False, on_step=None,
                   check_staleness: bool = True, force_refresh: bool = False,

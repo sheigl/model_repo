@@ -1,0 +1,415 @@
+{% extends "base.html" %}
+{% block title %}Packages — Model Deployment{% endblock %}
+{% block content %}
+<div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Packages</h1>
+    <p class="text-sm text-slate-400">Named groups of files from one or more repos, fetched into the local cache in one job.</p>
+  </div>
+  <button id="new-package" class="btn-primary w-full md:w-auto">+ New package</button>
+</div>
+
+<!-- Editor -->
+<div id="pkg-editor" class="card hidden">
+  <h2 id="editor-title" class="mb-4 text-lg font-semibold">New package</h2>
+  <div class="grid gap-4 md:grid-cols-3">
+    <div>
+      <label class="label" for="pkg-name">Name *</label>
+      <input id="pkg-name" class="input" placeholder="e.g. Z-Image 6B turbo">
+    </div>
+    <div>
+      <label class="label" for="pkg-task">Task</label>
+      <input id="pkg-task" class="input" placeholder="e.g. text-to-image">
+    </div>
+    <div>
+      <label class="label" for="pkg-desc">Description</label>
+      <input id="pkg-desc" class="input" placeholder="optional notes">
+    </div>
+  </div>
+
+  <div class="mt-5">
+    <div class="mb-2 flex items-center justify-between">
+      <span class="label mb-0">Components (repo + files) *</span>
+      <button id="add-comp" class="btn-ghost text-xs">+ Add component</button>
+    </div>
+    <div id="comp-rows" class="flex flex-col gap-3"></div>
+  </div>
+
+  <p id="pkg-error" class="mt-3 hidden text-sm text-err"></p>
+  <div class="mt-4 flex flex-col gap-2 md:flex-row">
+    <button id="pkg-save" class="btn-primary w-full md:w-auto">Save package</button>
+    <button id="pkg-cancel" class="btn-ghost w-full md:w-auto">Cancel</button>
+  </div>
+</div>
+
+<!-- List -->
+<div id="pkg-list" class="flex flex-col gap-3"></div>
+<p id="pkg-empty" class="card hidden py-8 text-center text-sm text-slate-500">No packages yet — create one to group files from several repos.</p>
+
+<!-- File picker -->
+<div id="picker" class="fixed inset-0 z-50 hidden">
+  <div class="absolute inset-0 bg-black/60" id="picker-backdrop"></div>
+  <div class="absolute left-1/2 top-1/2 flex max-h-[80vh] w-[92vw] max-w-2xl -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl border border-line bg-card p-5 shadow-2xl">
+    <div class="mb-3 flex items-center justify-between gap-3">
+      <div class="min-w-0">
+        <h3 class="text-base font-semibold">Pick files</h3>
+        <p id="picker-repo" class="truncate font-mono text-xs text-slate-400"></p>
+      </div>
+      <button id="picker-close" class="btn-ghost px-3 py-1 text-xs">Close</button>
+    </div>
+    <input id="picker-filter" class="input mb-3" placeholder="Filter files…">
+    <div id="picker-loading" class="py-6 text-center text-sm text-slate-500">Loading file list…</div>
+    <div id="picker-files" class="min-h-0 flex-1 overflow-y-auto rounded-lg border border-line"></div>
+    <div class="mt-4 flex items-center justify-between gap-3">
+      <span id="picker-count" class="text-xs text-slate-400">0 selected</span>
+      <div class="flex gap-2">
+        <button id="picker-add" class="btn-primary text-sm">Add selected</button>
+        <button id="picker-cancel" class="btn-ghost text-sm">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var state = { packages: [], editingId: null, comps: [], picker: null };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function fmtSize(n) {
+    if (n == null) return '';
+    var u = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return n.toFixed(n >= 100 || i === 0 ? 0 : 1) + ' ' + u[i];
+  }
+  function api(path, opts) {
+    return fetch(path, opts || {}).then(function (r) {
+      return r.json().then(function (data) {
+        if (!r.ok) throw new Error(data.detail || data.error || ('HTTP ' + r.status));
+        return data;
+      });
+    });
+  }
+
+  // ---------- list ----------
+  function stateBadge(st) {
+    if (st === 'cached') return '<span class="badge" style="background:rgba(63,191,110,.15);color:#3fbf6e">cached</span>';
+    if (st === 'update-available') return '<span class="badge" style="background:rgba(224,164,88,.15);color:#e0a458">update</span>';
+    return '<span class="badge" style="background:rgba(255,155,155,.15);color:#ff9b9b">missing</span>';
+  }
+
+  function pkgCard(p) {
+    var comps = (p.components || []).map(function (c) {
+      return '<span class="chip" title="' + esc(c.repo) + '">' + esc(c.label) +
+        ' <span class="font-mono text-slate-500">' + esc(c.repo) + '</span> · ' + c.files.length + 'f</span>';
+    }).join(' ');
+    return (
+      '<div class="card" id="pkg-' + esc(p.id) + '">' +
+      '<div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">' +
+      '<div class="min-w-0">' +
+      '<div class="flex flex-wrap items-center gap-2">' +
+      '<h3 class="text-base font-semibold">' + esc(p.name) + '</h3>' +
+      (p.task ? '<span class="badge">' + esc(p.task) + '</span>' : '') +
+      '</div>' +
+      (p.description ? '<p class="mt-1 text-sm text-slate-400">' + esc(p.description) + '</p>' : '') +
+      '<div class="mt-2 flex flex-wrap gap-1.5">' + comps + '</div>' +
+      '<div class="mt-3" id="status-' + esc(p.id) + '"></div>' +
+      '</div>' +
+      '<div class="flex shrink-0 flex-col gap-2 md:w-auto">' +
+      '<div class="flex gap-2">' +
+      '<button class="btn-primary text-sm" onclick="PackagesApp.fetchPkg(\'' + esc(p.id) + '\', false)">Fetch</button>' +
+      '<button class="btn-ghost text-sm" onclick="PackagesApp.fetchPkg(\'' + esc(p.id) + '\', true)">Dry run</button>' +
+      '</div>' +
+      '<div class="flex gap-2">' +
+      '<button class="btn-ghost text-xs" onclick="PackagesApp.refreshStatus(\'' + esc(p.id) + '\')">↻ status</button>' +
+      '<button class="btn-ghost text-xs" onclick="PackagesApp.editPkg(\'' + esc(p.id) + '\')">Edit</button>' +
+      '<button class="btn-danger text-xs" onclick="PackagesApp.deletePkg(\'' + esc(p.id) + '\')">Delete</button>' +
+      '</div>' +
+      '</div></div></div>'
+    );
+  }
+
+  function renderList() {
+    var el = document.getElementById('pkg-list');
+    el.innerHTML = state.packages.map(pkgCard).join('');
+    document.getElementById('pkg-empty').classList.toggle('hidden', state.packages.length > 0);
+    state.packages.forEach(function (p) { refreshStatus(p.id, true); });
+  }
+
+  function loadPackages() {
+    return api('/api/packages').then(function (data) {
+      state.packages = data.packages || [];
+      renderList();
+    }).catch(function (err) {
+      document.getElementById('pkg-list').innerHTML =
+        '<p class="card text-err">Couldn’t load packages: ' + esc(err.message) + '</p>';
+    });
+  }
+
+  function statusBox(pid) { return document.getElementById('status-' + pid); }
+
+  function refreshStatus(pid, first) {
+    var box = statusBox(pid);
+    if (!box) return Promise.resolve();
+    if (!first) box.innerHTML = '<p class="text-xs text-slate-500">Checking status…</p>';
+    return api('/api/packages/' + pid + '/status').then(function (st) {
+      var c = st.counts || {};
+      var lines = [
+        '<span class="text-xs text-slate-400">' + (c.cached || 0) + '/' + (c.total || 0) + ' cached' +
+        (c.update_available ? ' · ' + c.update_available + ' update' : '') +
+        (c.missing ? ' · ' + c.missing + ' missing' : '') +
+        (c.bytes_local ? ' · ' + fmtSize(c.bytes_local) + ' local' : '') +
+        (c.bytes_remote ? ' · ' + fmtSize(c.bytes_remote) + ' remote' : '') + '</span>'
+      ];
+      (st.components || []).forEach(function (comp) {
+        lines.push('<div class="mt-1 flex flex-col gap-0.5">' +
+          comp.files.map(function (f) {
+            return '<div class="flex items-center gap-2 text-xs">' + stateBadge(f.state) +
+              '<span class="min-w-0 truncate font-mono text-slate-300" title="' + esc(comp.repo + '/' + f.file) + '">' +
+              esc(f.file) + '</span>' +
+              '<span class="ml-auto shrink-0 text-slate-500">' + fmtSize(f.size_local) +
+              (f.size_remote && f.size_remote !== f.size_local ? ' → ' + fmtSize(f.size_remote) : '') + '</span>' +
+              '</div>';
+          }).join('') + '</div>');
+      });
+      box.innerHTML = lines.join('');
+    }).catch(function (err) {
+      if (box) box.innerHTML = '<p class="text-xs text-err">status: ' + esc(err.message) + '</p>';
+    });
+  }
+
+  function fetchPkg(pid, dry) {
+    var p = state.packages.filter(function (x) { return x.id === pid; })[0];
+    api('/api/packages/' + pid + '/fetch' + (dry ? '?dry_run=1' : ''), { method: 'POST' }).then(function (data) {
+      if (data.ok) {
+        var name = p ? p.name : pid;
+        if (dry) alert('Dry run queued for “' + name + '” — see Jobs.');
+        if (window.MDSPA) window.MDSPA.navigate('/jobs#' + data.job_id);
+        else window.location.href = '/jobs#' + data.job_id;
+      } else throw new Error(data.error || 'failed');
+    }).catch(function (err) { alert('Failed to queue fetch: ' + err.message); });
+  }
+
+  function deletePkg(pid) {
+    var p = state.packages.filter(function (x) { return x.id === pid; })[0];
+    if (!confirm('Delete package “' + (p ? p.name : pid) + '”? Downloaded files stay in the cache.')) return;
+    api('/api/packages/' + pid + '/delete', { method: 'POST' }).then(loadPackages)
+      .catch(function (err) { alert('Delete failed: ' + err.message); });
+  }
+
+  // ---------- editor ----------
+  function setEditorError(msg) {
+    var el = document.getElementById('pkg-error');
+    el.textContent = msg || '';
+    el.classList.toggle('hidden', !msg);
+  }
+
+  function compRowHtml(c, i) {
+    var chips = (c.files || []).map(function (f) {
+      return '<span class="chip comp-chip">' + esc(f) +
+        ' <button class="ml-1 text-slate-500 hover:text-err" data-x="' + esc(f) + '" title="remove">✕</button></span>';
+    }).join(' ');
+    return (
+      '<div class="rounded-lg border border-line bg-surface-row p-3" data-row="' + i + '">' +
+      '<div class="grid gap-2 md:grid-cols-[1fr_1.4fr_auto]">' +
+      '<div><label class="label">Label</label>' +
+      '<input class="input comp-label" value="' + esc(c.label) + '" placeholder="base"></div>' +
+      '<div><label class="label">Repo (org/name) *</label>' +
+      '<input class="input comp-repo font-mono" value="' + esc(c.repo) + '" placeholder="stabilityai/sd-xl"></div>' +
+      '<div class="flex items-end"><button class="btn-ghost w-full text-sm md:w-auto" data-browse>🗂 Browse files…</button></div>' +
+      '</div>' +
+      (chips ? '<div class="mt-2 flex flex-wrap gap-1.5">' + chips + '</div>' : '') +
+      '</div>'
+    );
+  }
+
+  function renderComps() {
+    var el = document.getElementById('comp-rows');
+    el.innerHTML = state.comps.map(compRowHtml).join('');
+  }
+
+  function readCompRows() {
+    var rows = document.querySelectorAll('#comp-rows [data-row]');
+    rows.forEach(function (row) {
+      var i = parseInt(row.getAttribute('data-row'), 10);
+      state.comps[i].label = row.querySelector('.comp-label').value;
+      state.comps[i].repo = row.querySelector('.comp-repo').value;
+    });
+  }
+
+  function showEditor(pkg) {
+    state.editingId = pkg ? pkg.id : null;
+    state.comps = pkg
+      ? pkg.components.map(function (c) { return { label: c.label, repo: c.repo, files: c.files.slice() }; })
+      : [{ label: '', repo: '', files: [] }];
+    document.getElementById('editor-title').textContent = pkg ? 'Edit package' : 'New package';
+    document.getElementById('pkg-name').value = pkg ? pkg.name : '';
+    document.getElementById('pkg-task').value = pkg ? (pkg.task || '') : '';
+    document.getElementById('pkg-desc').value = pkg ? (pkg.description || '') : '';
+    setEditorError('');
+    renderComps();
+    document.getElementById('pkg-editor').classList.remove('hidden');
+    document.getElementById('pkg-name').focus();
+  }
+
+  function editPkg(pid) {
+    var p = state.packages.filter(function (x) { return x.id === pid; })[0];
+    if (p) showEditor(p);
+  }
+
+  function hideEditor() {
+    state.editingId = null;
+    document.getElementById('pkg-editor').classList.add('hidden');
+  }
+
+  function validate() {
+    readCompRows();
+    var name = document.getElementById('pkg-name').value.trim();
+    if (!name) return 'Name is required.';
+    var ok = false;
+    for (var i = 0; i < state.comps.length; i++) {
+      var c = state.comps[i];
+      c.repo = c.repo.trim().replace(/^\/+|\/+$/g, '');
+      c.label = c.label.trim();
+      if (!c.repo) return 'Component ' + (i + 1) + ': repo is required.';
+      if (!c.files.length) return 'Component ' + (i + 1) + ': pick at least one file.';
+      ok = true;
+    }
+    if (!ok) return 'Add at least one component.';
+    return null;
+  }
+
+  function savePkg() {
+    var err = validate();
+    if (err) { setEditorError(err); return; }
+    var body = {
+      name: document.getElementById('pkg-name').value.trim(),
+      task: document.getElementById('pkg-task').value.trim(),
+      description: document.getElementById('pkg-desc').value.trim(),
+      components: state.comps.map(function (c) { return { label: c.label, repo: c.repo, files: c.files }; })
+    };
+    var btn = document.getElementById('pkg-save');
+    btn.disabled = true;
+    var url = state.editingId ? '/api/packages/' + state.editingId : '/api/packages';
+    api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function () { hideEditor(); return loadPackages(); })
+      .catch(function (e) { setEditorError(e.message); })
+      .then(function () { btn.disabled = false; });
+  }
+
+  // ---------- file picker ----------
+  function openPicker(rowIndex) {
+    readCompRows();
+    var repo = state.comps[rowIndex].repo.trim().replace(/^\/+|\/+$/g, '');
+    if (!repo) { alert('Enter the repo (org/name) first.'); return; }
+    state.picker = { repo: repo, rowIndex: rowIndex, files: [], selected: {} };
+    document.getElementById('picker').classList.remove('hidden');
+    document.getElementById('picker-repo').textContent = repo;
+    document.getElementById('picker-filter').value = '';
+    document.getElementById('picker-loading').classList.remove('hidden');
+    document.getElementById('picker-files').innerHTML = '';
+    updatePickerCount();
+    api('/api/hub/files?repo=' + encodeURIComponent(repo)).then(function (data) {
+      var cache = data.cacheStatus || {};
+      state.picker.files = (data.files || []).map(function (path) {
+        var info = cache[path] || {};
+        return { path: path, size: (data.sizes || {})[path], cached: !!info.cached };
+      });
+      document.getElementById('picker-loading').classList.add('hidden');
+      renderPickerFiles();
+    }).catch(function (err) {
+      document.getElementById('picker-loading').classList.add('hidden');
+      document.getElementById('picker-files').innerHTML =
+        '<p class="p-4 text-sm text-err">Couldn’t list files: ' + esc(err.message) + '</p>';
+    });
+  }
+
+  function renderPickerFiles() {
+    var pk = state.picker;
+    if (!pk) return;
+    var filter = document.getElementById('picker-filter').value.toLowerCase();
+    var box = document.getElementById('picker-files');
+    var html = pk.files.filter(function (f) {
+      return !filter || f.path.toLowerCase().indexOf(filter) !== -1;
+    }).map(function (f) {
+      var checked = pk.selected[f.path] ? ' checked' : '';
+      return '<label class="flex cursor-pointer items-center gap-3 border-b border-line px-3 py-2 text-sm hover:bg-surface-row">' +
+        '<input type="checkbox" class="pk-file" value="' + esc(f.path) + '"' + checked + ' style="width:auto;height:auto">' +
+        '<span class="min-w-0 flex-1 truncate font-mono text-slate-300" title="' + esc(f.path) + '">' + esc(f.path) + '</span>' +
+        (f.cached ? '<span class="badge" style="background:rgba(63,191,110,.15);color:#3fbf6e">cached</span>' : '') +
+        '<span class="shrink-0 text-xs text-slate-500">' + fmtSize(f.size) + '</span></label>';
+    }).join('');
+    box.innerHTML = html || '<p class="p-4 text-sm text-slate-500">No files match.</p>';
+  }
+
+  function updatePickerCount() {
+    var pk = state.picker;
+    var n = pk ? Object.keys(pk.selected).length : 0;
+    document.getElementById('picker-count').textContent = n + ' selected';
+  }
+
+  function closePicker() {
+    state.picker = null;
+    document.getElementById('picker').classList.add('hidden');
+  }
+
+  function applyPicker() {
+    var pk = state.picker;
+    if (!pk) return;
+    var chosen = Object.keys(pk.selected).filter(function (k) { return pk.selected[k]; });
+    if (!chosen.length) { alert('Select at least one file.'); return; }
+    var c = state.comps[pk.rowIndex];
+    chosen.forEach(function (f) { if (c.files.indexOf(f) === -1) c.files.push(f); });
+    closePicker();
+    renderComps();
+  }
+
+  // ---------- wiring ----------
+  document.getElementById('new-package').addEventListener('click', function () { showEditor(null); });
+  document.getElementById('pkg-cancel').addEventListener('click', hideEditor);
+  document.getElementById('pkg-save').addEventListener('click', savePkg);
+  document.getElementById('add-comp').addEventListener('click', function () {
+    state.comps.push({ label: '', repo: '', files: [] });
+    renderComps();
+  });
+  document.getElementById('comp-rows').addEventListener('click', function (e) {
+    var row = e.target.closest('[data-row]');
+    if (!row) return;
+    var i = parseInt(row.getAttribute('data-row'), 10);
+    if (e.target.closest('[data-browse]')) openPicker(i);
+    var x = e.target.closest('[data-x]');
+    if (x) {
+      var c = state.comps[i];
+      c.files = c.files.filter(function (f) { return f !== x.getAttribute('data-x'); });
+      renderComps();
+    }
+  });
+  document.getElementById('picker-close').addEventListener('click', closePicker);
+  document.getElementById('picker-cancel').addEventListener('click', closePicker);
+  document.getElementById('picker-backdrop').addEventListener('click', closePicker);
+  document.getElementById('picker-add').addEventListener('click', applyPicker);
+  document.getElementById('picker-filter').addEventListener('input', renderPickerFiles);
+  document.getElementById('picker-files').addEventListener('change', function (e) {
+    var t = e.target;
+    if (t.classList && t.classList.contains('pk-file') && state.picker) {
+      state.picker.selected[t.value] = t.checked;
+      updatePickerCount();
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && state.picker) closePicker();
+  });
+
+  window.PackagesApp = {
+    fetchPkg: fetchPkg, deletePkg: deletePkg, editPkg: editPkg, refreshStatus: refreshStatus
+  };
+
+  loadPackages();
+})();
+</script>
+{% endblock %}
