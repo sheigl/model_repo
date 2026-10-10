@@ -292,6 +292,7 @@ function switchDrawerTab(tab){
   else { meta.classList.remove('hidden'); files.classList.add('hidden'); bm.classList.add('tab-on'); bm.classList.remove('text-slate-400'); bf.classList.remove('tab-on'); bf.classList.add('text-slate-400'); }
 }
 function cssEq(s){ return String(s).replace(/["\\]/g,'\\$&'); }
+function isQuantFile(f){ return f.toLowerCase().endsWith('.gguf'); }
 function leafBadge(cs){
   if(!cs || !cs.cached) return '';
   return cs.up_to_date
@@ -326,10 +327,12 @@ function mmprojLeaf(f, size, cs){
   </div>`;
 }
 function treeLeaf(f, size, cs){
-  const q=f.replace(/\.gguf$/,'');
   const base=f.split('/').pop();
+  const isQuant = isQuantFile(f);
+  const cls = isQuant ? 'dw-quant' : 'dw-extra';
+  const val = isQuant ? f.replace(/\.gguf$/,'') : f;
   return `<div class="flex items-center gap-3 px-3 py-1.5 hover:bg-surface-alt">
-    <input type="checkbox" class="dw-quant accent-brand rounded" value="${q}" data-file="${cssEq(f)}" title="${cssEq(f)}">
+    <input type="checkbox" class="${cls} accent-brand rounded" value="${cssEq(val)}" data-file="${cssEq(f)}" title="${cssEq(f)}">
     <span class="min-w-0 flex-1 truncate font-mono text-xs text-ink" title="${cssEq(f)}">${base}${leafBadge(cs)}</span>
     <span class="shrink-0 text-right text-[11px] ${size==null?'text-slate-600':'text-slate-400'}">${formatSize(size)}</span>
   </div>`;
@@ -401,7 +404,7 @@ function renderHubTree(files, sizes, cstat){
 }
 function toggleCheckAll(e){
   const on=e.target.checked;
-  document.querySelectorAll('.dw-quant, .dw-mmproj').forEach(l=>l.checked=on);
+  document.querySelectorAll('.dw-quant, .dw-mmproj, .dw-extra').forEach(l=>l.checked=on);
   refreshFolderBoxes();
   refreshCheckAll();
 }
@@ -409,7 +412,7 @@ function refreshCheckAll(){
   const wrap=document.getElementById('dw-checkall-wrap');
   const box=document.getElementById('dw-checkall');
   if(!wrap || !box) return;
-  const leaves=[...document.querySelectorAll('.dw-quant, .dw-mmproj')];
+  const leaves=[...document.querySelectorAll('.dw-quant, .dw-mmproj, .dw-extra')];
   const checked=leaves.filter(l=>l.checked).length;
   wrap.classList.toggle('hidden', leaves.length===0);
   box.checked = leaves.length>0 && checked===leaves.length;
@@ -419,7 +422,7 @@ document.addEventListener('change', function(e){
   const t=e.target;
   if(t.id==='dw-checkall') toggleCheckAll(e);
   else if(t.classList.contains('dw-folder')) toggleFolderAll(e);
-  else if(t.classList.contains('dw-quant') || t.classList.contains('dw-mmproj')){ refreshFolderBoxes(); refreshCheckAll(); }
+  else if(t.classList.contains('dw-quant') || t.classList.contains('dw-mmproj') || t.classList.contains('dw-extra')){ refreshFolderBoxes(); refreshCheckAll(); }
 });
 function formatSize(bytes){
   if(!bytes && bytes!==0) return '<span class="text-slate-600">—</span>';
@@ -432,8 +435,18 @@ function drawerTargetChanged(){
   if(!t) return;
   const cats = t.categories||{};
   const sel = document.getElementById('dw-category');
-  const first = Object.keys(cats)[0];
-  if(first){ document.getElementById('dw-category').value = first; }
+  const current = sel.value;
+  // keep current selection if it's still valid for this target
+  if(current && cats[current]){
+    return;
+  }
+  // find first category that exists in both target mappings and dropdown options
+  const validCats = Object.keys(cats).filter(k => [...sel.options].some(o => o.value === k));
+  if(validCats.length){
+    sel.value = validCats[0];
+  } else {
+    sel.value = '';
+  }
 }
 async function drawerDeploy(){
   const target = document.getElementById('dw-target').value;
@@ -446,7 +459,7 @@ async function drawerDeploy(){
     if(!target){ document.getElementById('dw-result').innerHTML='<p class="text-err">Pick a target.</p>'; return; }
     // Gather the repo-relative paths of whatever was checked (map back from the
     // display-stripped path we rendered into the tree). At least one must be on.
-    let sel = [...document.querySelectorAll('.dw-quant:checked, .dw-mmproj:checked')].map(c => cacheSrcMap[c.dataset.file] || c.dataset.file);
+    let sel = [...document.querySelectorAll('.dw-quant:checked, .dw-mmproj:checked, .dw-extra:checked')].map(c => cacheSrcMap[c.dataset.file] || c.dataset.file);
     if(!sel.length){ document.getElementById('dw-result').innerHTML='<p class="text-err">Select at least one file.</p>'; return; }
     const fd = new FormData();
     fd.append('source_root', src ? src.root : '');
@@ -464,12 +477,14 @@ async function drawerDeploy(){
 
   // Hub mode: pick quant(s), deploy = download-if-missing then rsync.
   let quants = [...document.querySelectorAll('.dw-quant:checked')].map(c=>c.value);
+  const extras = [...document.querySelectorAll('.dw-extra:checked')].map(c=>c.dataset.file);
   const mmBox = document.querySelector('.dw-mmproj:checked');
   const mmFile = mmBox ? mmBox.dataset.file : '';
-  if(!quants.length && !mmFile){ document.getElementById('dw-result').innerHTML='<p class="text-err">Select at least one quant or an mmproj.</p>'; return; }
+  if(!quants.length && !mmFile && !extras.length){ document.getElementById('dw-result').innerHTML='<p class="text-err">Select at least one quant, extra file or an mmproj.</p>'; return; }
   const fd = new FormData();
   fd.append('model', currentRepo);
   quants.forEach(q=>fd.append('quants',q));
+  extras.forEach(e=>fd.append('extras',e));
   fd.append('no_mmproj', mmFile ? '' : 'on');
   if(mmFile) fd.append('mmproj', mmFile);
   fd.append('dry_run', document.getElementById('dw-dry').checked?'on':'');
@@ -554,17 +569,18 @@ function openCacheRepo(m){
   buildMetaCache(m);
   switchDrawerTab('files');
   currentRepo = { ...m, kind: 'cache' };
-  if(document.getElementById('dw-category')) document.getElementById('dw-category').value = m.category || '';
+  if(document.getElementById('dw-category')){
+    const sel = document.getElementById('dw-category');
+    const cat = m.category || '';
+    const exists = [...sel.options].some(o => o.value === cat);
+    sel.value = exists ? cat : '';
+  }
   document.getElementById('dw-result').textContent='';
 
-  // A grouped ("tree") card is several files under one name — list them with checkboxes
-  // so the user can pick which ones to sync. A single-file card just shows its path.
-  if((m.file_count || 1) > 1){
-    loadCacheFiles(m);
-  } else {
-    document.getElementById('dw-filecount').textContent = (m.file_count||1)+' cached';
-    document.getElementById('dw-files').innerHTML=`<p class="text-xs text-slate-500 font-mono break-all">${m.path}</p><button class="btn-ghost mt-3 w-full !py-2 text-sm" onclick="switchDrawerTab('meta')">✎ Edit metadata / upstream repo</button>`;
-  }
+  // Grouped ("tree") cards list their files with checkboxes so the user can pick
+  // which ones to sync — single-file cards get exactly one checkbox, keeping the
+  // deploy flow uniform (previously they showed text only and were undeployable).
+  loadCacheFiles(m);
 }
 function stripCommon(f, prefix){
   const p = (prefix||'').replace(/\/+$/,'');

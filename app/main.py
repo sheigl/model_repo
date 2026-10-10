@@ -434,12 +434,15 @@ def _runner(job, emit):
         cfg = _cfg()
 
         def step(s):
-            emit(f"[{s.get('action')}] {s.get('local', s.get('remote_file', s.get('note','')))}")
+            loc = s.get("local") or s.get("remote_file") or s.get("note") or ""
+            err = s.get("error")
+            emit(f"[{s.get('action')}] {loc}" + (f" (error: {err})" if err else ""))
 
         summary = hf.run_hf_download(
             model=m["model"], quants=m["quants"], output_dir=m["output_dir"],
             token_env=m.get("token_env", "HF_TOKEN"), dry_run=m.get("dry_run", False),
-            no_mmproj=m.get("no_mmproj", False), mmproj=m.get("mmproj"), on_step=step,
+            no_mmproj=m.get("no_mmproj", False), mmproj=m.get("mmproj"),
+            extras=m.get("extras"), on_step=step,
             check_staleness=True,
             should_cancel=lambda: queue.is_cancelled(job.id),
             on_progress=lambda frac: job.set_progress(frac * 100),
@@ -457,10 +460,12 @@ def _runner(job, emit):
         repo_root = m["output_dir"]
 
         def step(s):
-            emit(f"[{s.get('action')}] {s.get('local', s.get('remote_file', s.get('note','')))}")
+            loc = s.get("local") or s.get("remote_file") or s.get("note") or ""
+            err = s.get("error")
+            emit(f"[{s.get('action')}] {loc}" + (f" (error: {err})" if err else ""))
 
         plan = build_deploy_plan(provider, m["model"], m["quants"], m["no_mmproj"],
-                                 m.get("mmproj"))
+                                 m.get("mmproj"), extras=m.get("extras"))
         if not plan["plan"]:
             raise RuntimeError(f"{plan['repo_id']}: no matching files found")
 
@@ -530,7 +535,9 @@ def _runner(job, emit):
         provider = get_provider(cfg.registry.provider, cfg.registry.token_env)
 
         def step(s):
-            emit(f"[{s.get('action')}] {s.get('local', s.get('remote_file', s.get('note','')))}")
+            loc = s.get("local") or s.get("remote_file") or s.get("note") or ""
+            err = s.get("error")
+            emit(f"[{s.get('action')}] {loc}" + (f" (error: {err})" if err else ""))
 
         summary = packages.fetch_package(
             pkg, cfg.registry.repo_root, provider,
@@ -845,13 +852,25 @@ def api_sync(source_root: str = Form(...), local_path: str = Form(...),
     # entry is repo-relative from the source root; we strip the synced folder's
     # prefix so a file lands under remote_root at exactly where it would if the
     # whole tree were rsynced verbatim (structure preserved, nothing nested extra).
+    #
+    # Sources that mirror the cache's HF structure (the LLM model cache) keep
+    # every file at its full repo-relative path on the target, so the remote
+    # layout matches the cache exactly — a nested file like
+    # author/repo/sub/model.gguf does not get flattened to model.gguf. Category-
+    # style sources (ComfyUI) instead drop their category dir and deploy flat
+    # into the per-category remote_root, which is where that app looks for them.
     selected = None
     if files:
         tree_rel = local_path.strip("/")
+        src = next((s for s in cfg.sources
+                    if os.path.normpath(s.root) == os.path.normpath(source_root)), None)
+        preserve_structure = bool(src) and src.kind != "comfyui"
         selected = []
         for rel in files:
             r = rel.strip("/").replace("\\", "/")
-            if tree_rel and r.startswith(tree_rel + "/"):
+            if preserve_structure:
+                within = r
+            elif tree_rel and r.startswith(tree_rel + "/"):
                 within = r[len(tree_rel) + 1:]
             else:
                 within = os.path.basename(r)
@@ -1168,14 +1187,14 @@ def api_model_check_update(key: str = Form(...)):
 @app.post("/api/hf/download")
 def api_hf_download(model: str = Form(...), quants: list[str] = Form([]),
                     no_mmproj: bool = Form(False), dry_run: bool = Form(False),
-                    mmproj: str = Form("")):
+                    mmproj: str = Form(""), extras: list[str] = Form([])):
     cfg = _cfg()
     output_dir = cfg.registry.repo_root
     job = queue.create("hf_download", f"HF download {model} [{', '.join(quants)}]")
     job.meta = {  # type: ignore[attr-defined]
         "model": model, "quants": quants, "output_dir": output_dir,
         "token_env": cfg.registry.token_env, "dry_run": dry_run, "no_mmproj": no_mmproj,
-        "mmproj": mmproj,
+        "mmproj": mmproj, "extras": extras,
     }
     return {"ok": True, "job_id": job.id}
 
@@ -1184,7 +1203,7 @@ def api_hf_download(model: str = Form(...), quants: list[str] = Form([]),
 def api_deploy(model: str = Form(...), quants: list[str] = Form([]),
                no_mmproj: bool = Form(False), dry_run: bool = Form(False),
                target: str = Form(""), category: str = Form(""),
-               mmproj: str = Form("")):
+               mmproj: str = Form(""), extras: list[str] = Form([])):
     cfg = _cfg()
     output_dir = cfg.registry.repo_root
     if not target:
@@ -1193,7 +1212,7 @@ def api_deploy(model: str = Form(...), quants: list[str] = Form([]),
         job.meta = {  # type: ignore[attr-defined]
             "model": model, "quants": quants, "output_dir": output_dir,
             "token_env": cfg.registry.token_env, "dry_run": dry_run, "no_mmproj": no_mmproj,
-            "mmproj": mmproj,
+            "mmproj": mmproj, "extras": extras,
         }
         return {"ok": True, "job_id": job.id, "mode": "cache"}
     tm = cfg.targets.get(target)
@@ -1203,7 +1222,7 @@ def api_deploy(model: str = Form(...), quants: list[str] = Form([]),
     job.meta = {  # type: ignore[attr-defined]
         "model": model, "quants": quants, "output_dir": output_dir,
         "token_env": cfg.registry.token_env, "dry_run": dry_run, "no_mmproj": no_mmproj,
-        "mmproj": mmproj,
+        "mmproj": mmproj, "extras": extras,
         "target": target, "category": category, "host": tm.host, "user": tm.user,
         "key": tm.ssh_key, "ntfs": tm.ntfs,
     }

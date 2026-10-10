@@ -25,7 +25,7 @@ class StubProvider:
     def list_files_with_sizes(self, repo_id):
         return dict(self.remote.get(repo_id, {}))
 
-    def download(self, repo_id, filename, local_dir):
+    def download(self, repo_id, filename, local_dir, on_bytes=None):
         self.downloads.append((repo_id, filename))
         dest_dir = Path(local_dir) / repo_id
         dest_dir.mkdir(parents=True, exist_ok=True)

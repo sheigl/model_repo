@@ -36,6 +36,7 @@ def run_hf_download(
     dry_run: bool = False,
     no_mmproj: bool = False,
     mmproj: str | None = None,
+    extras: list[str] | None = None,
     on_step=None,
     check_staleness: bool = True,
     should_cancel=None,
@@ -44,7 +45,7 @@ def run_hf_download(
     """Run an HF download job. Returns a summary dict; streams steps via callback."""
     provider = HuggingFaceProvider(token=os.environ.get(token_env))
     repo_id = provider.resolve(model)
-    plan = build_deploy_plan(provider, model, quants, no_mmproj, mmproj)
+    plan = build_deploy_plan(provider, model, quants, no_mmproj, mmproj, extras=extras)
 
     counts = {"downloaded": 0, "skipped": 0}
 

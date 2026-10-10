@@ -29,6 +29,7 @@
     <input type="hidden" name="model" id="hf-model">
     <div id="hf-quants-selected" class="mb-3"></div>
     <input type="hidden" name="quants" id="hf-quants-hidden">
+    <input type="hidden" name="extras" id="hf-extras-hidden">
 
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <div>
@@ -129,12 +130,17 @@ async function listFiles(){
     const cstat = (await cacheRes.json()).status || {};
     document.getElementById('hf-model').value = data.repo;
     if(!data.files.length){ out.innerHTML='<p class="text-sm text-slate-400">No GGUF files.</p>'; return; }
+    function isQuantFile(f){ return f.toLowerCase().endsWith('.gguf'); }
     let html = '<div class="mb-3"><p class="text-xs uppercase text-slate-500 mb-2">'+data.repo+' — available files</p><div class="grid gap-1 max-h-64 overflow-auto">';
     data.files.forEach(f => {
-      const q = f.replace(/^mmproj-/,'').replace(/\.gguf$/,'');
       const base = f.split('/').pop();
-      const cls = base.indexOf('mmproj') === 0 ? 'hf-mmproj' : 'hf-q';
-      html += `<label class="flex items-center gap-2 text-sm py-1"><input type="checkbox" class="${cls}" value="${q}" data-file="${f}" onchange="updateQuants()"> ${cacheBadge(cstat[f])}${f}</label>`;
+      const isMmproj = base.toLowerCase().startsWith('mmproj');
+      const isQuant = isQuantFile(f);
+      let cls, val;
+      if(isMmproj){ cls='hf-mmproj'; val=f.replace(/^mmproj-/,'').replace(/\.gguf$/,''); }
+      else if(isQuant){ cls='hf-q'; val=f.replace(/\.gguf$/,''); }
+      else { cls='hf-extra'; val=f; }
+      html += `<label class="flex items-center gap-2 text-sm py-1"><input type="checkbox" class="${cls}" value="${val}" data-file="${f}" onchange="updateQuants()"> ${cacheBadge(cstat[f])}${f}</label>`;
     });
     html += '</div></div>';
     out.innerHTML = html;
@@ -143,9 +149,12 @@ async function listFiles(){
 }
 function updateQuants(){
   const checked = [...document.querySelectorAll('.hf-q:checked')].map(c=>c.value);
+  const extras = [...document.querySelectorAll('.hf-extra:checked')].map(c=>c.dataset.file);
   const mm = [...document.querySelectorAll('.hf-mmproj:checked')].length ? 'mmproj' : '';
   document.getElementById('hf-quants-hidden').value = JSON.stringify(checked);
+  document.getElementById('hf-extras-hidden').value = JSON.stringify(extras);
   let s = checked.join(', ');
+  if(extras.length){ s += (s ? ', ' : '') + extras.map(e=>e.split('/').pop()).join(', '); }
   if(mm) s += (s ? ', ' : '') + mm;
   document.getElementById('hf-quants-selected').textContent = s ? `selected: ${s}` : '';
 }
@@ -163,8 +172,9 @@ document.getElementById('hf-form').onsubmit = async (e) => {
   const model = document.getElementById('hf-model').value;
   if(!model){ alert('List files first.'); return; }
   const quants = JSON.parse(document.getElementById('hf-quants-hidden').value || '[]');
+  const extras = JSON.parse(document.getElementById('hf-extras-hidden').value || '[]');
   const mmFile = (document.querySelector('.hf-mmproj:checked') || {}).dataset?.file || '';
-  if(!quants.length && !mmFile){ alert('Select at least one quant or an mmproj.'); return; }
+  if(!quants.length && !mmFile && !extras.length){ alert('Select at least one quant, extra file or an mmproj.'); return; }
   const target = document.getElementById('hf-target').value;
   const submit = document.getElementById('hf-submit');
   const indicator = document.getElementById('hf-indicator');
@@ -175,6 +185,7 @@ document.getElementById('hf-form').onsubmit = async (e) => {
     const fd = new FormData();
     fd.append('model', model);
     quants.forEach(q => fd.append('quants', q));
+    extras.forEach(e => fd.append('extras', e));
     fd.append('no_mmproj', document.getElementById('hf-no-mmproj').checked ? 'on' : '');
     if(mmFile) fd.append('mmproj', mmFile);
     fd.append('dry_run', document.getElementById('hf-dry-run').checked ? 'on' : '');

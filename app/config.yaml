@@ -1,5 +1,11 @@
 app_port: 9999
 bind_host: 0.0.0.0
+mcp:
+  allow_origins: []
+  auth_token: ''
+  enabled: true
+  path: /mcp
+  trusted_hosts: []
 registry:
   enabled: true
   options: {}
@@ -60,7 +66,7 @@ targets:
         remote_root: /home/sheigl/AI/sd_models/audio_encoders
         subdirs: {}
       audio-gen:
-        remote_root: /home/sheigl/AI/chat_models
+        remote_root: /mnt/500GB/models
         subdirs: {}
       embedding:
         remote_root: /home/sheigl/AI/chat_models/embedding
@@ -72,7 +78,7 @@ targets:
         remote_root: /home/sheigl/AI/sd_models/loras
         subdirs: {}
       llm:
-        remote_root: /home/sheigl/AI/chat_models
+        remote_root: /mnt/500GB/models
         subdirs: {}
       upscaler:
         remote_root: /home/sheigl/AI/sd_models/upscale_models

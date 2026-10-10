@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections.abc import Callable
 
 from huggingface_hub import list_repo_files
 
@@ -41,6 +42,21 @@ def is_model_file(f: str) -> bool:
     return True
 
 
+def _aux_by_name(files: list[str], ql: str) -> str | None:
+    """Match an explicitly-picked auxiliary file (e.g. ``mtp-q8_0``).
+
+    Aux files (MTP heads, imatrix measurement files) are exempted from bare-quant
+    matching so a plain ``q8_0`` never grabs the MTP head instead of the main
+    model file. But when the picker sends a quant that *names* an aux file, match
+    it by basename — across any subfolder — so a deliberate check still lands.
+    """
+    want = f"{ql}.gguf"
+    for f in files:
+        if os.path.basename(f).lower() == want:
+            return f
+    return None
+
+
 def find_matches(files: list[str], quants: list[str]) -> list[str]:
     """Find model files matching the requested selections.
 
@@ -54,6 +70,11 @@ def find_matches(files: list[str], quants: list[str]) -> list[str]:
         ql = quant.lower()
         if quant in files:
             matches.append(quant)
+            continue
+        if any(ql.startswith(p.rstrip("-")) for p in _SKIP_PREFIXES):
+            # Explicit aux pick (mtp head / imatrix file): by name, not the
+            # quant heuristics that deliberately skip these.
+            matches.append(_aux_by_name(files, ql))
             continue
         found = None
         for f in files:
@@ -139,8 +160,13 @@ class RepoProvider:
         """
         raise NotImplementedError
 
-    def download(self, repo_id: str, filename: str, local_dir: str) -> str:
-        """Download one file into local_dir; return its local path."""
+    def download(self, repo_id: str, filename: str, local_dir: str,
+                 on_bytes: Callable[[int, int | None], None] | None = None) -> str:
+        """Download one file into local_dir; return its local path.
+
+        ``on_bytes`` (optional) receives ``(bytes_done, total_bytes)`` as the
+        transfer progresses, letting callers show live per-file progress.
+        """
         raise NotImplementedError
 
     def search(self, query: str, *, limit: int = 12, offset: int = 0,
@@ -262,11 +288,13 @@ class HuggingFaceProvider(RepoProvider):
             })
         return {"results": results, "next_cursor": has_more, "has_more": has_more}
 
-    def download(self, repo_id: str, filename: str, local_dir: str) -> str:
+    def download(self, repo_id: str, filename: str, local_dir: str,
+                 on_bytes: Callable[[int, int | None], None] | None = None) -> str:
         from huggingface_hub import hf_hub_download
 
         return hf_hub_download(
-            repo_id=repo_id, filename=filename, local_dir=local_dir, token=self.token
+            repo_id=repo_id, filename=filename, local_dir=local_dir, token=self.token,
+            tqdm_class=_bytes_progress_bar(on_bytes) if on_bytes else None,
         )
 
 
@@ -283,7 +311,8 @@ def get_provider(provider: str, token_env: str = "HF_TOKEN") -> RepoProvider:
 # ---------------------------------------------------------------------------
 
 def build_deploy_plan(provider: RepoProvider, model: str, quants: list[str],
-                      no_mmproj: bool = False, mmproj: str | None = None) -> dict:
+                      no_mmproj: bool = False, mmproj: str | None = None,
+                      extras: list[str] | None = None) -> dict:
     """Compute the exact files a deploy/download should operate on.
 
     Pure (only lists the repo); does not touch the local cache. Returns:
@@ -293,6 +322,10 @@ def build_deploy_plan(provider: RepoProvider, model: str, quants: list[str],
     takes precedence over the automatic ``find_aux`` pick so the exact projector
     they clicked is the one downloaded. The local name always keeps the model name
     prefix so two different models' projectors never collide in the shared cache.
+
+    ``extras`` is an optional list of repo-relative paths the user explicitly
+    selected (e.g. ``tokenizer_config.json``) that are not model weights or
+    projectors but should be cached/deployed alongside the model.
     """
     repo_id = provider.resolve(model)
     model_name = provider.model_name(repo_id)
@@ -311,6 +344,16 @@ def build_deploy_plan(provider: RepoProvider, model: str, quants: list[str],
             plan.append({"remote_file": mm,
                          "local_name": os.path.join(repo_id, f"mmproj-{prec}-{model_name}.gguf"),
                          "kind": "mmproj"})
+
+    # Explicit extra files (e.g. tokenizer_config.json for chat_template).
+    extra_seen: set[str] = set()
+    for ef in (extras or []):
+        if ef and ef in files and ef not in extra_seen:
+            extra_seen.add(ef)
+            plan.append({"remote_file": ef,
+                         "local_name": os.path.join(repo_id, ef),
+                         "kind": "extra"})
+
     for fname in find_matches(files, quants):
         if fname:
             # local_name mirrors the upstream repo so the cache and target both
@@ -347,11 +390,51 @@ def _remote_file_sizes(provider: RepoProvider, repo_id: str) -> dict[str, int | 
     return sizes or {}
 
 
+def _bytes_progress_bar(on_bytes: Callable[[int, int | None], None]):
+    """Silent tqdm subclass that reports per-chunk byte progress.
+
+    ``huggingface_hub`` drives its download progress through the ``tqdm_class``
+    hook on ``hf_hub_download``, calling ``update(n)`` with each chunk's byte
+    count. We route that to ``on_bytes(bytes_done, total_bytes)`` so callers get
+    live per-file progress without any terminal rendering (bars are forced off,
+    and the base's render/refresh paths are never reached).
+
+    The class exists so the callback can be captured per download; it is
+    recreated for each call.
+    """
+    from huggingface_hub.utils import tqdm as _hub_tqdm
+
+    class _Bar(_hub_tqdm):
+        def __init__(self, *args, **kwargs):
+            kwargs["disable"] = True  # never render to a terminal
+            super().__init__(*args, **kwargs)
+            self._on_bytes = on_bytes
+
+        def update(self, n=1):
+            if not n:
+                return
+            # HF reuses the bar across HTTP retries and rolls it back via
+            # update(-resume_size); drop the negative so the report stays sane.
+            self.n += n
+            if n > 0:
+                cb = self._on_bytes
+                if cb:
+                    try:
+                        cb(self.n, self.total)
+                    except Exception:
+                        pass
+
+    return _Bar
+
+
 def _download_and_place(provider: RepoProvider, repo_id: str, remote_file: str,
                         local_path: str, repo_root: str, local_name: str,
-                        on_step=None) -> None:
+                        on_step=None, on_bytes=None) -> None:
     """Download one file into repo_root and relocate it to ``local_path``."""
-    path = provider.download(repo_id, remote_file, repo_root)
+    if on_bytes is not None:
+        path = provider.download(repo_id, remote_file, repo_root, on_bytes=on_bytes)
+    else:
+        path = provider.download(repo_id, remote_file, repo_root)
     if os.path.normpath(path) != os.path.normpath(local_path):
         parent = os.path.dirname(local_path)
         if parent:
@@ -398,19 +481,46 @@ def ensure_cached(provider: RepoProvider, plan: dict, repo_root: str,
     ``force_refresh`` always overwrites regardless of size. When remote sizes are
     unavailable the local file is left untouched (best-effort).
 
-    ``on_progress`` receives a fractional 0.0-1.0 value after each plan item is
-    resolved (cached, downloaded, dry-run, or errored), letting the UI show live
-    progress. It must not raise.
+    ``on_progress`` receives a fractional 0.0-1.0 value as work is resolved,
+    weighted by remote byte size, so a live download moves the bar smoothly the
+    whole way through a file (not just when it completes). Individual items are
+    counted per chunk as bytes arrive; cached/dry-run/error items count their
+    full share at once. It must not raise.
 
     Returns the local paths that should be present afterward, so the caller can
     deploy (sync) them to a target.
     """
     local_paths: list[str] = []
     remote_sizes = _remote_file_sizes(provider, plan["repo_id"]) if (check_staleness or force_refresh) else {}
+    items = plan["plan"]
+    total = len(items) or 1
 
-    total = len(plan["plan"]) or 1
+    # Byte-weighted progress: weight each item by its remote size so per-chunk
+    # updates inside a download pull the overall bar forward proportionally
+    # (a cached/instant item just jumps the bar by its own share). When a size
+    # is unknown — or sizes aren't reported at all — fall back to equal weights.
+    weights: list[int] = []
+    for item in items:
+        size = remote_sizes.get(item["remote_file"])
+        weights.append(size if isinstance(size, int) and size > 0 else 1)
+    total_weight = float(sum(weights)) or float(total)
+    resolved_weight = 0.0
 
-    for idx, item in enumerate(plan["plan"]):
+    def report_frac(weight: float, file_frac: float = 1.0) -> None:
+        if not on_progress:
+            return
+        frac = min(1.0, (resolved_weight + weight * file_frac) / total_weight)
+        try:
+            on_progress(frac)
+        except Exception:
+            pass
+
+    def file_progress(done: int, file_total: int | None, weight: float) -> None:
+        if not file_total or file_total <= 0:
+            return
+        report_frac(weight, min(1.0, done / file_total))
+
+    for idx, item in enumerate(items):
         if should_cancel and should_cancel():
             # Cancelled mid-transfer: stop before starting the next file.
             if on_step:
@@ -421,6 +531,8 @@ def ensure_cached(provider: RepoProvider, plan: dict, repo_root: str,
             local_name = item["local_name"]
             local_path = os.path.join(repo_root, local_name)
             remote_size = remote_sizes.get(remote_file)
+            weight = weights[idx]
+            on_bytes = lambda done, ftot: file_progress(done, ftot, weight)
 
             if os.path.exists(local_path):
                 stale = False
@@ -441,7 +553,7 @@ def ensure_cached(provider: RepoProvider, plan: dict, repo_root: str,
                         continue
                     try:
                         _download_and_place(provider, plan["repo_id"], remote_file, local_path,
-                                            repo_root, local_name, on_step)
+                                            repo_root, local_name, on_step, on_bytes=on_bytes)
                     except Exception as e:
                         if on_step:
                             on_step({"action": "download-error", "remote_file": remote_file, "error": str(e)})
@@ -487,17 +599,16 @@ def ensure_cached(provider: RepoProvider, plan: dict, repo_root: str,
                 continue
             try:
                 _download_and_place(provider, plan["repo_id"], remote_file, local_path,
-                                    repo_root, local_name, on_step)
+                                    repo_root, local_name, on_step, on_bytes=on_bytes)
                 local_paths.append(local_path)
             except Exception as e:
                 if on_step:
                     on_step({"action": "download-error", "remote_file": remote_file, "error": str(e)})
         finally:
-            if on_progress:
-                try:
-                    on_progress((idx + 1) / total)
-                except Exception:
-                    pass
+            # The current item is fully resolved (cached, downloaded, errored,
+            # or was cancelled): count its whole share, then move on.
+            report_frac(weights[idx])
+            resolved_weight += weights[idx]
     return local_paths
 
 

@@ -79,10 +79,13 @@ async function refresh(){
     // panels to restore them afterwards (pinned panels snap to the bottom).
     const prevTop = {};
     openLogs.forEach(id => { const pre = logPre(id); if(pre) prevTop[id] = pre.scrollTop; });
+    const prevScrollY = window.scrollY;
     if(!data.jobs.length){
       list.innerHTML = '<p class="text-slate-400">No jobs yet.</p>';
     } else {
       list.innerHTML = data.jobs.map(jobRow).join('');
+      // Preserve page scroll after DOM rebuild to avoid jump-to-top
+      requestAnimationFrame(() => window.scrollTo(0, prevScrollY));
       // Only offer clearing when there's something finished to clear.
       const hasFinished = data.jobs.some(j => j.status !== 'queued' && j.status !== 'running');
       const clearBtn = document.getElementById('clear-finished');

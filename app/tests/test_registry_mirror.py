@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from app.registry import (HuggingFaceProvider, build_deploy_plan, cache_status_for_repo,
-                          check_cache_status, ensure_cached, find_aux, find_mmproj)
+                          check_cache_status, ensure_cached, find_aux, find_matches, find_mmproj)
 
 
 class _FakeProvider(HuggingFaceProvider):
@@ -38,7 +38,7 @@ class _FakeProvider(HuggingFaceProvider):
     def list_files_with_sizes(self, repo_id):
         return self._sizes.get(repo_id, {})
 
-    def download(self, repo_id, filename, local_dir):
+    def download(self, repo_id, filename, local_dir, on_bytes=None):
         dest = os.path.join(local_dir, filename)
         parent = os.path.dirname(dest)
         if parent:
@@ -95,6 +95,52 @@ class FindMmprojTests(unittest.TestCase):
 
     def test_ignores_non_mmproj_and_returns_none_when_missing(self):
         self.assertIsNone(find_mmproj(["model-Q4_K_M.gguf"], "mmproj-q4_k_m.gguf"))
+
+
+class MtpMatchTests(unittest.TestCase):
+    """MTP heads / imatrix files are excluded from bare-quant matching (so
+    ``q8_0`` picks the main model, never the head) but must match when the user
+    explicitly selects them by name — the "q8 mtp" download case."""
+
+    REPO_FILES = [
+        "Qwen_Qwen3.6-35B-A3B-Q8_0.gguf",
+        "Qwen_Qwen3.6-35B-A3B-Q4_K_M.gguf",
+        "mtp-Qwen_Qwen3.6-35B-A3B-Q8_0.gguf",
+        "mtp-Qwen_Qwen3.6-35B-A3B-Q4_0.gguf",
+        "Qwen_Qwen3.6-35B-A3B-imatrix.gguf",
+    ]
+
+    def test_bare_quant_never_picks_mtp_head(self):
+        self.assertEqual(
+            find_matches(self.REPO_FILES, ["q8_0"]),
+            ["Qwen_Qwen3.6-35B-A3B-Q8_0.gguf"])
+
+    def test_explicit_mtp_name_matches_head(self):
+        self.assertEqual(
+            find_matches(self.REPO_FILES, ["mtp-Qwen_Qwen3.6-35B-A3B-Q8_0"]),
+            ["mtp-Qwen_Qwen3.6-35B-A3B-Q8_0.gguf"])
+
+    def test_imatrix_by_name(self):
+        self.assertEqual(
+            find_matches(self.REPO_FILES, ["Qwen_Qwen3.6-35B-A3B-imatrix"]),
+            ["Qwen_Qwen3.6-35B-A3B-imatrix.gguf"])
+
+    def test_nested_mtp_head_matches_by_basename(self):
+        nested = ["UD-Q8_0/mtp-Qwen_Qwen3.6-35B-A3B-Q8_0.gguf"]
+        self.assertEqual(
+            find_matches(nested, ["mtp-Qwen_Qwen3.6-35B-A3B-Q8_0"]),
+            ["UD-Q8_0/mtp-Qwen_Qwen3.6-35B-A3B-Q8_0.gguf"])
+
+    def test_build_plan_includes_explicit_mtp(self):
+        provider = _FakeProvider(
+            {"o/m": self.REPO_FILES},
+            sizes_by_repo={"o/m": {f: 100 for f in self.REPO_FILES}})
+        plan = build_deploy_plan(provider, "o/m",
+                                 quants=["Q8_0", "mtp-Qwen_Qwen3.6-35B-A3B-Q8_0"])
+        remotes = [p["remote_file"] for p in plan["plan"]]
+        self.assertIn("mtp-Qwen_Qwen3.6-35B-A3B-Q8_0.gguf", remotes)
+        self.assertIn("Qwen_Qwen3.6-35B-A3B-Q8_0.gguf", remotes)
+        self.assertNotIn("mtp-Qwen_Qwen3.6-35B-A3B-Q4_0.gguf", remotes)
 
 
 class PlanAndCacheTests(unittest.TestCase):
@@ -189,6 +235,92 @@ def _write_local(tmp, rel_path, body):
     with open(path, "wb") as fh:
         fh.write(body)
     return path
+
+
+class _ChunkedFakeProvider(_FakeProvider):
+    """Same as _FakeProvider but ``download`` streams the file in small chunks,
+    calling ``on_bytes(done, total)`` each step — mimicking huggingface_hub's
+    per-chunk tqdm updates that the real provider now forwards."""
+
+    CHUNK = 4
+
+    def download(self, repo_id, filename, local_dir, on_bytes=None):
+        dest = os.path.join(local_dir, filename)
+        parent = os.path.dirname(dest)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        base = b"gguf-bytes-" + filename.encode()
+        size = (self._sizes.get(repo_id) or {}).get(filename)
+        body = base + (b"x" * (size - len(base))) if (size is not None and size > len(base)) else base
+        total = len(body)
+        done = 0
+        with open(dest, "wb") as fh:
+            for i in range(0, total, self.CHUNK):
+                chunk = body[i:i + self.CHUNK]
+                fh.write(chunk)
+                done += len(chunk)
+                if on_bytes:
+                    on_bytes(done, total)
+        return dest
+
+
+class ByteProgressTests(unittest.TestCase):
+    """Per-chunk download progress must move the overall bar smoothly, not just
+    step once per finished file (the pre-fix behavior)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_progress_rises_during_download(self):
+        sizes = {"o/m": {"model-A.gguf": 200, "model-B.gguf": 200}}
+        provider = _ChunkedFakeProvider(sizes, sizes_by_repo=sizes)
+        plan = build_deploy_plan(provider, "o/m", quants=["model-A.gguf", "model-B.gguf"])
+
+        seen: list[float] = []
+        ensure_cached(provider, plan, self.tmp, on_progress=seen.append)
+
+        self.assertTrue(seen, "no progress reported")
+        self.assertEqual(seen[-1], 1.0)
+        self.assertTrue(all(0.0 <= p <= 1.0 for p in seen))
+        # Byte-weighted: the first chunk lands well below 100% and many distinct
+        # intermediate values arrive on the way there.
+        self.assertGreater(len(seen), 10)
+        self.assertGreater(len([p for p in seen if 0 < p < 1]), 5)  # real in-flight updates
+        self.assertTrue(all(seen[i] <= seen[i + 1] for i in range(len(seen) - 1)))
+
+    def test_cached_share_jumps_then_remaining_downloads_smoothly(self):
+        # A is already cached (correct size) so its full byte share counts the
+        # instant it resolves; B then streams per-chunk updates from 50% → 100%.
+        sizes = {"o/m": {"model-A.gguf": 200, "model-B.gguf": 200}}
+        provider = _ChunkedFakeProvider(sizes, sizes_by_repo=sizes)
+        plan = build_deploy_plan(provider, "o/m", quants=["model-A.gguf", "model-B.gguf"])
+        _write_local(self.tmp, "o/m/model-A.gguf", b"a" * 200)
+
+        seen: list[float] = []
+        ensure_cached(provider, plan, self.tmp, on_progress=seen.append)
+
+        self.assertEqual(seen[0], 0.5)   # cached A counted at once
+        self.assertEqual(seen[-1], 1.0)
+        fill = [p for p in seen if 0.5 < p < 1.0]
+        self.assertGreater(len(fill), 5)  # per-chunk updates inside B's download
+        self.assertTrue(all(seen[i] <= seen[i + 1] for i in range(len(seen) - 1)))
+
+    def test_no_sizes_reported_still_completes(self):
+        # When our remote-size lookup fails, items fall back to equal weights,
+        # but per-chunk updates still arrive (hf_hub_download always knows the
+        # file length from its HEAD) and the bar must finish at 1.0.
+        provider = _ChunkedFakeProvider({"o/m": ["model-A.gguf", "model-B.gguf"]})
+        plan = build_deploy_plan(provider, "o/m", quants=["model-A.gguf", "model-B.gguf"])
+
+        seen: list[float] = []
+        ensure_cached(provider, plan, self.tmp, on_progress=seen.append)
+
+        self.assertEqual(seen[-1], 1.0)
+        for i in range(2):
+            self.assertNotEqual(seen[i], 1.0)
 
 
 class StalenessTests(unittest.TestCase):
